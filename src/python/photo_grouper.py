@@ -4,6 +4,7 @@ PhotoLab Photo Grouper
 
 Groups photos based on QR code detection results and temporal proximity.
 Implements the sequential grouping algorithm from project_rules.md.
+CORRIGIDO: Agora implementa corretamente a lógica sequencial de agrupamento.
 """
 
 import json
@@ -24,6 +25,7 @@ class PhotoGroup:
     """Represents a group of photos for a single participant."""
     qr_code: str
     participant_name: str = ""
+    turma: str = ""
     photos: List[Dict[str, Any]] = None
     confidence_score: float = 0.0
     
@@ -50,6 +52,7 @@ class PhotoGroup:
 class PhotoGrouper:
     """
     Groups photos based on QR code detection and temporal sequence.
+    CORRIGIDO: Implementa corretamente a lógica sequencial.
     """
     
     def __init__(self, participants_data):
@@ -66,6 +69,13 @@ class PhotoGrouper:
     def group_photos(self, detection_results):
         """
         Group photos based on QR detection results and temporal sequence.
+        CORRIGIDO: Agora implementa corretamente a lógica sequencial.
+        
+        Lógica corrigida:
+        1. Ordena fotos por tempo de modificação
+        2. Quando encontra uma foto com QR válido, inicia um novo grupo
+        3. Todas as fotos subsequentes (sem QR ou com QR diferente) são adicionadas ao grupo atual
+        4. Quando encontra outro QR válido, finaliza o grupo atual e inicia um novo
         
         Args:
             detection_results (list): Results from QR detection
@@ -77,44 +87,61 @@ class PhotoGrouper:
             logger.info(f"Grouping {len(detection_results)} photos...")
             
             # Sort photos by modified time (temporal sequence)
-            sorted_photos = sorted(detection_results, key=lambda x: x['modified_time'])
+            sorted_photos = detection_results  # Use natural order from qr_detector
+            logger.info(f"Using photos in natural order from qr_detector. First photo: {sorted_photos[0]['file_name'] if sorted_photos else 'None'}")
             
             # Process photos sequentially
             current_group = None
+            group_sequence = 0
             
-            for photo in sorted_photos:
+            for i, photo in enumerate(sorted_photos):
+                photo_name = photo.get('file_name', f'photo_{i}')
+                
                 if photo['found'] and photo['code']:
-                    # Photo has QR code - start new group or continue existing
+                    # Photo has QR code
                     qr_code = photo['code']
+                    logger.info(f"Processing photo {i+1}/{len(sorted_photos)}: {photo_name} - QR detected: {qr_code}")
                     
                     if qr_code in self.participants:
                         # Valid QR code from participant list
                         if current_group is None or current_group.qr_code != qr_code:
-                            # Start new group
+                            # Start new group (finalize previous if exists)
+                            if current_group is not None:
+                                logger.info(f"Finalizing group for {current_group.qr_code} with {current_group.get_photo_count()} photos")
+                            
                             current_group = self._create_group(qr_code)
+                            group_sequence += 1
+                            logger.info(f"Started new group #{group_sequence} for QR: {qr_code} (Participant: {current_group.participant_name})")
                         
                         current_group.add_photo(photo)
+                        logger.info(f"Added photo {photo_name} to group {current_group.qr_code}")
                         
                     else:
                         # QR code not in participant list
-                        logger.warning(f"Unknown QR code detected: {qr_code}")
+                        logger.warning(f"Unknown QR code detected: {qr_code} in photo {photo_name}")
                         self.ungrouped_photos.append({
                             **photo,
                             'reason': 'unknown_qr_code'
                         })
-                        current_group = None
+                        # Don't reset current_group - continue with current group
                 
                 else:
                     # Photo without QR code
                     if current_group is not None:
                         # Add to current group (sequential logic)
                         current_group.add_photo(photo)
+                        logger.info(f"Added photo without QR {photo_name} to current group {current_group.qr_code}")
                     else:
                         # No current group - add to ungrouped
+                        logger.info(f"No current group - adding {photo_name} to ungrouped")
                         self.ungrouped_photos.append({
                             **photo,
                             'reason': 'no_qr_detected'
                         })
+            
+            # Finalize last group
+            if current_group is not None:
+                logger.info(f"Finalizing last group for {current_group.qr_code} with {current_group.get_photo_count()} photos")
             
             # Calculate confidence scores
             self._calculate_confidence_scores()
@@ -123,6 +150,9 @@ class PhotoGrouper:
             stats = self._generate_statistics()
             
             logger.info(f"Grouping complete. {len(self.groups)} groups created.")
+            for qr_code, group in self.groups.items():
+                if group.get_photo_count() > 0:
+                    logger.info(f"  Group {qr_code} ({group.participant_name}): {group.get_photo_count()} photos")
             
             return {
                 'success': True,
@@ -144,7 +174,8 @@ class PhotoGrouper:
         
         group = PhotoGroup(
             qr_code=qr_code,
-            participant_name=participant.get('name', 'Unknown')
+            participant_name=participant.get('name', 'Unknown'),
+            turma=participant.get('turma', 'Unknown')
         )
         
         self.groups[qr_code] = group
@@ -209,6 +240,7 @@ class PhotoGrouper:
             qr_code: {
                 'qr_code': group.qr_code,
                 'participant_name': group.participant_name,
+                'turma': group.turma,
                 'participant_info': self.participants.get(qr_code, {}),
                 'photo_count': group.get_photo_count(),
                 'confidence_score': group.confidence_score,

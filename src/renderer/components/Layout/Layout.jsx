@@ -65,3 +65,4 @@ const Layout = ({ children, currentPage, onNavigation }) => {
 }
 
 export default Layout
+

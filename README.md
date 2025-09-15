@@ -185,3 +185,4 @@ npm run dev
 ---
 
 *Este projeto segue rigorosamente as especificações definidas nos documentos de regras e PRD inclusos.*
+

@@ -168,3 +168,4 @@ Se você ver esta mensagem, está pronto para usar o processamento OCR!
 ---
 
 **💡 Dica:** Após instalar as dependências, reinicie o PhotoLab para que as mudanças sejam detectadas!
+
