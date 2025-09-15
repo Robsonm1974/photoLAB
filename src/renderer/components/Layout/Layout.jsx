@@ -1,0 +1,67 @@
+import React from 'react'
+import { Camera, Folder, BarChart3, Settings } from 'lucide-react'
+
+/**
+ * Main Layout Component
+ * 
+ * Provides the overall application layout with navigation sidebar
+ * and main content area. Follows design system from agent_rules.md
+ */
+const Layout = ({ children, currentPage, onNavigation }) => {
+  const navigationItems = [
+    { id: 'home', label: 'Início', icon: Camera },
+    { id: 'processing', label: 'Processamento', icon: Folder },
+    { id: 'results', label: 'Resultados', icon: BarChart3 },
+    { id: 'settings', label: 'Configurações', icon: Settings }
+  ]
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar Navigation */}
+      <aside className="w-64 bg-white shadow-sm border-r border-gray-200">
+        <div className="p-6">
+          <div className="flex items-center space-x-3 mb-8">
+            <Camera className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">PhotoLab</h1>
+              <p className="text-sm text-gray-500">v1.0.0</p>
+            </div>
+          </div>
+          
+          <nav className="space-y-2">
+            {navigationItems.map((item) => {
+              const Icon = item.icon
+              const isActive = currentPage === item.id
+              
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => onNavigation(item.id)}
+                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors duration-200 ${
+                    isActive 
+                      ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                  <span className="font-medium">{item.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-auto">
+        <div className="page-wrapper">
+          <div className="page-content">
+            {children}
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+export default Layout

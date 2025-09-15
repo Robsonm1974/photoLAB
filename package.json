@@ -1,0 +1,87 @@
+{
+  "name": "photolab",
+  "version": "1.0.0",
+  "description": "Desktop photo organizer for school events with QR code detection",
+  "main": "src/main/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "build": "vite build",
+    "build:electron": "electron-builder",
+    "dist": "npm run build && npm run build:electron",
+    "pack": "electron-builder --dir",
+    "lint": "eslint src --ext .js,.jsx --fix",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "photography",
+    "qr-code",
+    "school-events",
+    "photo-organizer"
+  ],
+  "author": "PhotoManager Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.4.14",
+    "concurrently": "^8.2.0",
+    "electron": "^38.1.0",
+    "electron-builder": "^24.6.3",
+    "eslint": "^8.45.0",
+    "eslint-plugin-react": "^7.32.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.4.0",
+    "vite": "^7.1.5",
+    "wait-on": "^7.0.1"
+  },
+  "dependencies": {
+    "csv-parse": "^5.4.0",
+    "lucide-react": "^0.279.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.45.2",
+    "sqlite3": "^5.1.6"
+  },
+  "build": {
+    "appId": "com.photomanager.photolab",
+    "productName": "PhotoLab",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "src/main/**/*",
+      "src/python/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "src/assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "src/assets/icon.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "src/assets/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "src/python",
+        "to": "python"
+      }
+    ]
+  }
+}

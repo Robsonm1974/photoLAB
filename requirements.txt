@@ -1,0 +1,13 @@
+# PhotoLab Python Dependencies
+# OCR and Computer Vision
+opencv-python==4.8.1.78
+pyzbar==0.1.9
+Pillow==10.0.0
+
+# Data Processing
+pandas==2.0.3
+numpy==1.24.3
+
+# Utilities
+python-dotenv==1.0.0
+pathlib==1.0.1

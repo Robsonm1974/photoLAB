@@ -1,0 +1,497 @@
+# PhotoLab - Product Requirements Document (PRD)
+
+## 📋 VISÃO GERAL
+
+### **Objetivo**
+PhotoLab é uma aplicação desktop multiplataforma que automatiza a organização de fotos de eventos escolares, integrando-se ao SaaS PhotoManager para criar estruturas de pastas físicas baseadas em detecção de QR codes. 
+
+### **Problema a Resolver**
+Fotógrafos escolares gastam horas organizando manualmente milhares de fotos por evento, criando estruturas de pastas e renomeando arquivos para associar fotos aos participantes corretos.
+
+### **Solução**
+Aplicação desktop que:
+- Lê lista CSV de participantes
+- Cria estrutura de pastas organizada
+- Detecta QR codes automaticamente nas fotos
+- Copia e renomeia arquivos JPG
+- Gera relatórios de processamento
+
+---
+
+## 🎯 ESPECIFICAÇÕES TÉCNICAS
+
+### **Arquitetura**
+```
+Frontend: Electron + React + Tailwind CSS
+Backend: Node.js (APIs internas)
+Processamento: Python scripts (OCR + Computer Vision)
+Banco Local: SQLite (cache e configurações apenas)
+```
+
+### **Stack Detalhada**
+```javascript
+// Frontend
+- Electron ^27.0.0
+- React ^18.2.0
+- Tailwind CSS ^3.4.0
+- Lucide React (ícones)
+- React Hook Form (formulários)
+
+// Backend/Processamento  
+- Node.js ^20.0.0
+- Python ^3.11
+- OpenCV-Python (detecção QR)
+- Pillow (manipulação imagens)
+- Pandas (CSV handling)
+- SQLite3 (cache local)
+```
+
+### **Compatibilidade**
+- **Windows:** 10/11 (x64)
+- **macOS:** 10.15+ (Intel/Apple Silicon)
+- **Linux:** Ubuntu 20.04+ (x64)
+
+---
+
+## 🏗️ ARQUITETURA DE ARQUIVOS
+
+### **Estrutura do Projeto**
+```
+photolab/
+├── src/
+│   ├── main/                    # Processo principal Electron
+│   │   ├── main.js
+│   │   ├── preload.js
+│   │   └── menu.js
+│   ├── renderer/               # Interface React
+│   │   ├── components/
+│   │   │   ├── Layout/
+│   │   │   ├── Forms/
+│   │   │   ├── Progress/
+│   │   │   └── Reports/
+│   │   ├── pages/
+│   │   │   ├── Home.jsx
+│   │   │   ├── Processing.jsx
+│   │   │   └── Reports.jsx
+│   │   ├── hooks/
+│   │   └── utils/
+│   ├── python/                 # Scripts de processamento
+│   │   ├── qr_detector.py
+│   │   ├── file_organizer.py
+│   │   ├── csv_parser.py
+│   │   └── report_generator.py
+│   └── assets/
+├── public/
+├── build/
+├── dist/
+├── package.json
+├── electron-builder.json
+└── requirements.txt
+```
+
+---
+
+## 🔄 FLUXO DE FUNCIONAMENTO
+
+### **1. Inicialização**
+```
+1. Verificar licença PhotoManager (online)
+2. Carregar configurações locais
+3. Mostrar interface principal
+```
+
+### **2. Input do Usuário**
+```
+1. Selecionar arquivo CSV (participantes)
+2. Selecionar pasta origem (fotos cruas)
+3. Inserir nome do evento
+4. Configurações opcionais:
+   - Formatos aceitos (.jpg, .jpeg)
+   - Pasta destino (padrão: mesma da origem)
+```
+
+### **3. Processamento**
+```
+1. Validar CSV (colunas: nome, turma, qr_code)
+2. Escanear pasta origem (apenas JPGs)
+3. Criar estrutura de pastas baseado na lista CSV:
+   ...PastaDeOrigem/NomeEvento/Turma/ParticipanteNome-QRCode/
+4. Executar detecção OCR em lote:
+   - Detectar QR codes nas fotos
+   - Agrupar por proximidade temporal
+   - Associar aos participantes da lista
+5. Tratar erros - fazer associacao, inserir QR code, manualmente
+6.Copiar e renomear arquivos:
+   original.jpg → original_QRCode.jpg
+67. Gerar relatório final
+```
+
+### **4. Output**
+```
+📁 Estrutura organizada fisicamente
+📋 Relatório HTML/PDF
+📊 Log de operações
+⚠️ Lista de problemas encontrados
+```
+
+---
+
+## 📊 FUNCIONALIDADES DETALHADAS
+
+### **Core Features**
+
+#### **🔍 Detecção de QR Codes**
+```python
+Especificações:
+- Algoritmo: OpenCV + pyzbar
+- Formatos: QR Code padrão
+- Precisão: >95% em condições normais
+- Fallback: Interface manual para correções
+```
+
+#### **🗂️ Organização de Arquivos**
+```java/type script
+Estrutura Final:
+📁 [NomeEvento]/
+├── 📁 [Turma1]/
+│   ├── 📁 [NomeParticipante1 - QR123456]/
+│   │   ├── IMG001_QR123456.jpg
+│   │   ├── IMG002_QR123456.jpg
+│   │   └── ...
+│   └── 📁 [NomeParticipante2 - QR789012]/
+└── 📁 [Turma2]/
+```
+
+#### **📋 Sistema de Relatórios**
+```html
+Relatório HTML inclui:
+- Estatísticas gerais (total fotos, participantes)
+- Taxa de sucesso OCR
+- Lista de participantes processados
+- Problemas encontrados
+- Tempo de processamento
+- Timestamp e versão do PhotoLab
+```
+
+
+### **Interface Features**
+
+#### **🎨 UI/UX Requirements**
+```css
+Design System:
+- Tema: Moderno, clean, profissional
+- Cores: Azul primário, cinza neutro, verde sucesso
+- Tipografia: Inter/System fonts
+- Layout: Responsivo (mínimo 1024x768)
+- Componentes: shadcn/ui style
+```
+
+#### **📱 Telas Principais**
+
+**Tela 1: Setup**
+```jsx
+Componentes:
+- File picker para CSV
+- Folder picker para origem
+- Input texto para nome evento
+- Botão "Iniciar Processamento"
+- Preview da lista CSV (primeiras 5 linhas)
+```
+
+**Tela 2: Processamento**
+```jsx
+Componentes:
+- Progress bar animada
+- Estatísticas em tempo real
+- Log de atividades (scrollable)
+- Botão "Cancelar" (se necessário)
+- Preview das fotos sendo processadas
+```
+
+**Tela 3: Resultados**
+```jsx
+Componentes:
+- Resumo estatístico
+- Lista de sucessos/problemas
+- Botões: "Ver Relatório", "Abrir Pasta", "Novo Evento"
+- Preview da estrutura criada
+```
+**Tela 4: Erros**
+```jsx
+Componentes:
+- Identificação manual - De um lado as fotos nao identificadas, do outro lado, campo para associar/entrar qrcode
+- Tela carrega fotos nao identificadas em ordem, e permite selecionar o grupo, e inserir o qr code para o grupo
+- Botões: "TextBOx para o qrcode", "Inserir QR code", "Novo Evento"
+- Preview das fotos identificadas e mostra dos resultado.... (...100% das fotos identificadas)
+```
+
+---
+
+## 🔐 SISTEMA DE LICENCIAMENTO
+
+### **Integração PhotoManager**
+
+#### **Endpoint Requerido (PhotoManager)**
+```php
+// Endpoint: /api/photolab-license.php
+{
+  "user_id": "string",
+  "active": boolean,
+  "plan": "free|basic|pro", 
+  "photos_limit": number,
+  "photos_used": number,
+  "events_limit": number,
+  "events_used": number
+}
+```
+
+#### **Verificação (PhotoLab)**
+```javascript
+Momento da verificação:
+1. Ao inicializar aplicação
+2. A cada 24 horas (background)
+3. Antes de processar evento
+
+Comportamento:
+- Licença OK: Funcionalidade completa
+- Limite atingido: Bloquear processamento
+- Sem internet: Permitir por 24h (grace period)
+- Licença inválida: Modo somente visualização
+```
+
+### **Limites por Tier**
+```
+Segue os limites da assinatura do Photomanager, verifica se no photomanager está ok, se ok aqui funciona, senao congela.
+
+---
+
+## 🚀 REQUISITOS DE PERFORMANCE
+
+### **Benchmarks**
+```
+Volume de Teste: 5.000 fotos JPG (média 3MB cada)
+- Tempo OCR: < 10 minutos
+- Tempo cópia: < 5 minutos  
+- Memória RAM: < 1GB durante processamento
+- CPU: Multithreading (usar todos os cores)
+```
+
+### **Otimizações**
+```python
+Estratégias:
+1. Processamento paralelo (Pool de workers)
+2. Cache de OCR (não reprocessar)
+3. Batch operations (copiar em lotes)
+4. Progress incremental (feedback visual)
+5. Interrupção graceful (cancelar operação)
+```
+
+---
+
+## 🛠️ INSTALAÇÃO E DISTRIBUIÇÃO
+
+### **Instaladores Nativos**
+```json
+Electron Builder config:
+- Windows: NSIS installer (.exe)
+- macOS: DMG + auto-update  
+- Linux: AppImage + .deb
+
+Features:
+- Auto-updater integrado
+- Desktop shortcut
+- Menu start integration
+- Uninstaller incluído
+```
+
+### **Dependências Python**
+```python
+Instalação automática:
+- Python runtime embarcado
+- OpenCV, Pillow, pandas
+- Sem necessidade de Python no sistema
+```
+
+---
+
+## 📋 CASOS DE USO
+
+### **Cenário Típico**
+```
+Contexto: Sessão de fotos escolar
+- 300 participantes 
+- 2.500 fotos totais
+- 15 turmas
+- Tempo manual atual: 8 horas
+- Tempo com PhotoLab: 30 minutos
+```
+
+### **Edge Cases**
+```
+1. QR code não detectado:
+   - Mostrar foto na interface
+   - Permitir input manual do código
+   
+2. Múltiplos participantes em uma foto:
+   - Priorizar primeiro QR code detectado
+   - Log para revisão manual
+
+3. Participante sem fotos:
+   - Criar pasta vazia
+   - Alertar no relatório
+
+4. Arquivo corrompido:
+   - Pular arquivo
+   - Log do erro
+```
+
+---
+
+## 🔍 CRITÉRIOS DE ACEITAÇÃO
+
+### **Funcional**
+- ✅ Detecção QR code > 90% precisão
+- ✅ Processamento 1.000 fotos < 15min
+- ✅ Zero perda de arquivos originais
+- ✅ Estrutura de pastas correta 100%
+- ✅ Renomeação de arquivos consistente
+- ✅ Relatório gerado sempre
+- ✅ Verificação de licença funcional
+
+### **Técnico**
+- ✅ Instalação < 5 minutos
+- ✅ Interface responsiva (> 60fps)
+- ✅ Tratamento de erros robusto
+- ✅ Log detalhado de operações
+- ✅ Cancelamento de operações
+- ✅ Auto-updater funcional
+
+### **Usabilidade**
+- ✅ Setup em < 3 cliques
+- ✅ Feedback visual constante
+- ✅ Mensagens de erro claras
+- ✅ Documentação inclusa
+- ✅ Suporte a teclado/atalhos
+
+---
+
+## 🎯 ROADMAP DE LANÇAMENTO - PRIORIDADE DEFINIDA
+
+### **🚀 PRIMEIRA ENTREGA - MVP Core (Semana 1)**
+**Funcionalidades Cruciais:**
+```
+PRIORIDADE 1 - Escolha do diretório origem
+- Interface file picker para pasta
+- Validação: pasta existe e contém JPGs
+- Display path selecionado
+- Contagem prévia de arquivos JPG
+
+PRIORIDADE 2 - Carregar lista participantes CSV  
+- File picker para arquivo CSV
+- Parser e validação (nome, turma, qr_code)
+- Preview primeiras 5 linhas
+- Validação QR codes únicos
+- Export dados para processamento
+
+PRIORIDADE 3 - Criar diretórios baseado na lista
+- Sanitização nomes (caracteres especiais)
+- Estrutura: /Evento/Turma/Participante-QRCode/
+- Verificação permissões escrita
+- Criação árvore completa de diretórios
+```
+
+### **⚡ SEGUNDA ENTREGA - Processamento OCR (Semana 2-3)**
+**Funcionalidade Mais Complexa:**
+```
+PRIORIDADE 4 - Detecção QR codes (CORE COMPLEXO)
+
+4.1 - OCR Detection Engine:
+    • OpenCV + pyzbar setup
+    • Pipeline otimizado para QR detection
+    • Cache resultados para performance
+    • Confidence scoring
+
+4.2 - Sequenciamento de Fotos:  
+    • Identificar primeira foto (QR visible)
+    • Agrupar fotos até próximo QR aparecer
+    • Algoritmo temporal proximity
+    • Tratamento edge cases
+
+4.3 - Painel Confirmação Manual:
+    • Interface para QR codes não detectados
+    • Preview da foto + input manual QR
+    • Lista participantes sem fotos
+    • Batch correction interface
+
+4.4 - Cópia e Renomeação:
+    • Copy JPGs para pastas corretas  
+    • Rename: original_QRcode.jpg
+    • Preservar metadados EXIF
+    • Progress tracking em tempo real
+```
+
+### **🔐 TERCEIRA ENTREGA - Licenciamento (Semana 4)**
+```
+PRIORIDADE 5 - Verificação licença funcional
+- Integração PhotoManager API
+- Cache licença local
+- Enforcement limits (fotos/eventos)
+- Interface status assinatura
+- Modo offline (grace period 24h)
+```
+
+### **📊 QUARTA ENTREGA - Relatórios (Semana 5)**
+```
+PRIORIDADE 6 - Sistema relatórios
+- Relatório HTML standalone
+- Estatísticas processamento
+- Lista problemas encontrados  
+- Export logs detalhados
+```
+
+---
+
+## 📞 SUPORTE E MANUTENÇÃO
+
+### **Logs e Debug**
+```javascript
+Sistema de logs:
+- Arquivo: ~/PhotoLab/logs/app.log
+- Rotação: 7 dias
+- Níveis: ERROR, WARN, INFO, DEBUG
+- Envio automático crashes (opcional)
+```
+
+### **Atualizações**
+```json
+Auto-update:
+- Verificação: Startup + diária
+- Download: Background
+- Instalação: Reinício aplicação
+- Rollback: Versão anterior disponível
+```
+
+---
+
+## 🔒 SEGURANÇA E PRIVACIDADE
+
+### **Dados Locais**
+```
+Princípios:
+- Fotos nunca enviadas online
+- Processamento 100% local
+- Cache OCR opcional (deletável)
+- Logs sem dados pessoais
+```
+
+### **Comunicação Externa**
+```
+Apenas para:
+- Verificação licença PhotoManager
+- Check updates aplicação
+- Telemetria básica (opcional)
+```
+
+---
+
+*Este PRD serve como especificação completa para desenvolvimento do PhotoLab v1.0*
