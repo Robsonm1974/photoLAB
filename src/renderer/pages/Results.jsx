@@ -10,22 +10,79 @@ import {
   RefreshCw,
   UserPlus,
   FileImage,
-  ArrowRight
+  ArrowRight,
+  Edit3
 } from 'lucide-react'
 import PhotoThumbnail from '../components/PhotoThumbnail'
 
 const Results = ({ projectData, processingResults, onNavigation }) => {
   const [selectedGroup, setSelectedGroup] = useState(null)
+  // Estado local para edição de grupos (não altera página inicial)
+  const [groupsState, setGroupsState] = useState({})
+  const [editingGroupKey, setEditingGroupKey] = useState(null)
+  const [selectedGroupPhotos, setSelectedGroupPhotos] = useState([])
   const [ungroupedPhotos, setUngroupedPhotos] = useState([])
   const [showManualGrouping, setShowManualGrouping] = useState(false)
   const [selectedUngroupedPhotos, setSelectedUngroupedPhotos] = useState([])
   const [targetParticipant, setTargetParticipant] = useState('')
+  // Viewer state (visualização grande de imagens)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerList, setViewerList] = useState([])
+  const [viewerIndex, setViewerIndex] = useState(0)
+  const [viewerImage, setViewerImage] = useState('')
+  const [viewerLoading, setViewerLoading] = useState(false)
+  const [isFinalizing, setIsFinalizing] = useState(false)
 
   useEffect(() => {
     if (processingResults?.photo_grouping?.ungrouped_photos) {
       setUngroupedPhotos(processingResults.photo_grouping.ungrouped_photos)
     }
+    if (processingResults?.photo_grouping?.groups) {
+      setGroupsState(processingResults.photo_grouping.groups)
+    }
   }, [processingResults])
+
+  // Helpers de edição
+  const photoKey = (p) => (p?.file_path || p?.path || p?.file_name || p?.fileName || '') + '|' + (p?.modified_time || '')
+  const isSamePhoto = (a, b) => photoKey(a) === photoKey(b)
+
+  const handleEditGroup = useCallback((groupKey) => {
+    if (editingGroupKey === groupKey) {
+      setEditingGroupKey(null)
+      setSelectedGroupPhotos([])
+    } else {
+      setEditingGroupKey(groupKey)
+      setSelectedGroupPhotos([])
+    }
+  }, [editingGroupKey])
+
+  const toggleSelectPhotoInGroup = useCallback((groupKey, photo) => {
+    if (editingGroupKey !== groupKey) return
+    setSelectedGroupPhotos((prev) => {
+      const exists = prev.find((p) => isSamePhoto(p, photo))
+      if (exists) {
+        return prev.filter((p) => !isSamePhoto(p, photo))
+      }
+      return [...prev, photo]
+    })
+  }, [editingGroupKey])
+
+  const handleMoveSelectedToUngrouped = useCallback(() => {
+    if (!editingGroupKey || selectedGroupPhotos.length === 0) return
+    const group = groupsState[editingGroupKey]
+    if (!group) return
+
+    const remaining = (group.photos || []).filter((p) => !selectedGroupPhotos.find((sp) => isSamePhoto(sp, p)))
+    const moved = (group.photos || []).filter((p) => selectedGroupPhotos.find((sp) => isSamePhoto(sp, p)))
+
+    setGroupsState((prev) => ({
+      ...prev,
+      [editingGroupKey]: { ...group, photos: remaining }
+    }))
+    setUngroupedPhotos((prev) => [...moved, ...prev])
+    setSelectedGroupPhotos([])
+    setEditingGroupKey(null)
+  }, [editingGroupKey, selectedGroupPhotos, groupsState])
 
   const handleOpenFolder = useCallback(async () => {
     if (projectData?.createdFolderPath) {
@@ -78,6 +135,103 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
     }
   }, [selectedUngroupedPhotos, targetParticipant, projectData])
 
+  // Pequena correção visual para textos com mojibake (ex.: JoÃ£o -> João)
+  const fixEncoding = useCallback((text) => {
+    if (!text || typeof text !== 'string') return text
+    // Se contiver padrões típicos, tenta reparar Latin1->UTF8
+    if (/[ÃÂ�]/.test(text)) {
+      try {
+        // escape() gera bytes Latin1; decodeURIComponent decodifica em UTF-8
+        return decodeURIComponent(escape(text))
+      } catch (e) {
+        return text
+      }
+    }
+    return text
+  }, [])
+
+  // Helpers para visualizar imagem grande
+  const getPhotoPath = useCallback((photo) => {
+    if (!photo) return ''
+    if (typeof photo === 'string') return photo
+    return (
+      photo.file_path || photo.path || photo.source || photo.destination || photo.original_path || ''
+    )
+  }, [])
+
+  const openViewer = useCallback((list, index) => {
+    setViewerList(list)
+    setViewerIndex(index)
+    setViewerOpen(true)
+  }, [])
+
+  const closeViewer = useCallback(() => {
+    setViewerOpen(false)
+  }, [])
+
+  const prevPhoto = useCallback(() => {
+    setViewerIndex((i) => (i > 0 ? i - 1 : i))
+  }, [])
+
+  const nextPhoto = useCallback(() => {
+    setViewerIndex((i) => (i < viewerList.length - 1 ? i + 1 : i))
+  }, [viewerList])
+
+  useEffect(() => {
+    if (!viewerOpen) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeViewer()
+      if (e.key === 'ArrowLeft') prevPhoto()
+      if (e.key === 'ArrowRight') nextPhoto()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewerOpen, closeViewer, prevPhoto, nextPhoto])
+
+  // Load full-size image for viewer using safe data URL via preload (avoids file:// restriction)
+  useEffect(() => {
+    const load = async () => {
+      if (!viewerOpen || viewerList.length === 0) return
+      const current = viewerList[viewerIndex]
+      const path = getPhotoPath(current)
+      if (!path) { setViewerImage(''); return }
+      setViewerLoading(true)
+      try {
+        const res = await window.electronAPI.generateThumbnail(path)
+        if (res?.success && res?.dataUrl) {
+          setViewerImage(res.dataUrl)
+        } else {
+          setViewerImage('')
+        }
+      } catch (e) {
+        setViewerImage('')
+      } finally {
+        setViewerLoading(false)
+      }
+    }
+    load()
+  }, [viewerOpen, viewerIndex, viewerList, getPhotoPath])
+
+  const handleFinalize = useCallback(async () => {
+    try {
+      setIsFinalizing(true)
+      // Apenas salvar as não agrupadas no destino/EventName/Não Agrupadas
+      const payload = {
+        destinationFolder: projectData?.createdFolderPath,
+        ungroupedPhotos,
+        eventName: projectData?.eventName
+      }
+      const res = await window.electronAPI.saveUngroupedPhotos(payload)
+      if (!res?.success) throw new Error(res?.error || 'Falha ao salvar não agrupadas')
+      alert('Finalizado. Fotos não agrupadas salvas.')
+    } catch (e) {
+      console.error(e)
+      alert('Falha ao finalizar processamento.')
+    } finally {
+      setIsFinalizing(false)
+    }
+  }, [projectData, groupsState, ungroupedPhotos])
+
   if (!processingResults) {
     return (
       <div className="p-6 text-center">
@@ -95,7 +249,7 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
   }
 
   const { processing_summary, photo_grouping } = processingResults
-  const groups = photo_grouping?.groups || []
+  const groups = groupsState || {}
 
   return (
     <div className="p-6 space-y-6">
@@ -181,49 +335,72 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
           </h2>
           
           <div className="space-y-4">
-            {Object.entries(groups).map(([participantName, group], index) => (
+            {Object.entries(groups).map(([groupKey, group], index) => (
               <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <h3 className="font-semibold text-lg">{participantName}</h3>
-                    <p className="text-gray-600 text-sm">
-                      Turma: {group.participant?.turma || 'N/A'} | QR: {group.participant?.qrCode || 'N/A'}
-                    </p>
+                    <h3 className="font-semibold text-lg">{groupKey}</h3>
+                    {(() => {
+                      const displayName = fixEncoding(group.participant?.name || group.participant_name || 'N/A')
+                      const displayTurma = fixEncoding(group.participant?.turma || group.turma || 'N/A')
+                      const displayQR = group.participant?.qrCode || group.qr_code || 'N/A'
+                      return (
+                        <p className="text-gray-600 text-sm">({displayName}, {displayTurma}/QR {displayQR})</p>
+                      )
+                    })()}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
                       {group.photos?.length || 0} fotos
                     </span>
+                    {/* Botão Ver Fotos removido conforme solicitado */}
                     <button
-                      onClick={() => handleViewPhotos(group.folder_path)}
-                      className="flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+                      onClick={() => handleEditGroup(groupKey)}
+                      className={`flex items-center gap-1 px-3 py-1 rounded text-sm ${editingGroupKey===groupKey ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 hover:bg-gray-200'}`}
                     >
-                      <Eye size={16} />
-                      Ver Fotos
+                      <Edit3 size={16} />
+                      {editingGroupKey===groupKey ? 'Concluir Edição' : 'Editar'}
                     </button>
+                    {editingGroupKey===groupKey && (
+                      <button
+                        onClick={handleMoveSelectedToUngrouped}
+                        disabled={selectedGroupPhotos.length===0}
+                        className={`flex items-center gap-1 px-3 py-1 rounded text-sm ${selectedGroupPhotos.length===0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
+                      >
+                        <ArrowRight size={16} />
+                        Mover para Desagrupadas
+                      </button>
+                    )}
                   </div>
                 </div>
                 
                 {/* Photo thumbnails preview */}
                 <div className="flex gap-2 overflow-x-auto">
-                  {(group.photos || []).slice(0, 5).map((photo, photoIndex) => (
-                    <PhotoThumbnail
-                      key={photoIndex}
-                      photo={photo}
-                      size="md"
-                      clickable={true}
-                      onClick={() => {
-                        // You can implement a modal here to view full size
-                        console.log('Clicked photo:', photo)
-                      }}
-                      className="flex-shrink-0"
-                    />
-                  ))}
-                  {(group.photos?.length || 0) > 5 && (
-                    <div className="flex-shrink-0 w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
-                      <span className="text-xs text-gray-500">+{(group.photos?.length || 0) - 5}</span>
-                    </div>
-                  )}
+                  {(group.photos || []).map((photo, photoIndex) => {
+                    const selected = editingGroupKey===groupKey && selectedGroupPhotos.find((p)=>isSamePhoto(p, photo))
+                    return (
+                      <div
+                        key={photoIndex}
+                        className={`relative flex-shrink-0 rounded ${selected ? 'ring-2 ring-blue-500' : ''}`}
+                        onClick={() => {
+                          if (editingGroupKey===groupKey) {
+                            toggleSelectPhotoInGroup(groupKey, photo)
+                          } else {
+                            openViewer(group.photos, photoIndex)
+                          }
+                        }}
+                      >
+                        <PhotoThumbnail
+                          photo={photo}
+                          size="md"
+                          clickable={true}
+                        />
+                        {selected && (
+                          <CheckCircle className="text-blue-600 absolute -top-2 -right-2 bg-white rounded-full" size={20} />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             ))}
@@ -264,6 +441,8 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
                         ? prev.filter(p => p !== photo)
                         : [...prev, photo]
                     )
+                  } else {
+                    openViewer(ungroupedPhotos, index)
                   }
                 }}
               >
@@ -310,7 +489,7 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
                     <option value="">Selecione um participante...</option>
                     {projectData?.participants?.map((participant, index) => (
                       <option key={index} value={participant.name}>
-                        {participant.name} ({participant.turma})
+                        {fixEncoding(participant.name)} — QR: {participant.qrCode || 'N/A'}
                       </option>
                     ))}
                   </select>
@@ -340,6 +519,58 @@ const Results = ({ projectData, processingResults, onNavigation }) => {
           )}
         </div>
       )}
+
+      {/* Image Viewer Modal */}
+      {viewerOpen && viewerList.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center">
+          <button
+            className="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/60 rounded px-3 py-1"
+            onClick={closeViewer}
+          >
+            Fechar ✕
+          </button>
+          <button
+            className={`absolute left-4 text-white bg-black/40 hover:bg-black/60 rounded px-3 py-1 ${viewerIndex===0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+            onClick={prevPhoto}
+            disabled={viewerIndex===0}
+          >
+            ◀
+          </button>
+          <div className="max-w-[90vw] max-h-[90vh] flex items-center justify-center">
+            {viewerLoading && (
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white"></div>
+            )}
+            {!viewerLoading && viewerImage && (
+              <img
+                src={viewerImage}
+                alt="Preview"
+                className="object-contain w-full h-full"
+              />
+            )}
+            {!viewerLoading && !viewerImage && (
+              <div className="text-white opacity-80">Não foi possível carregar a imagem</div>
+            )}
+          </div>
+          <button
+            className={`absolute right-4 text-white bg-black/40 hover:bg-black/60 rounded px-3 py-1 ${viewerIndex>=viewerList.length-1 ? 'opacity-40 cursor-not-allowed' : ''}`}
+            onClick={nextPhoto}
+            disabled={viewerIndex>=viewerList.length-1}
+          >
+            ▶
+          </button>
+        </div>
+      )}
+
+      {/* Finalizar processamento */}
+      <div className="mt-8 flex justify-end">
+        <button
+          onClick={handleFinalize}
+          disabled={isFinalizing}
+          className={`px-4 py-2 rounded text-white ${isFinalizing ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'}`}
+        >
+          {isFinalizing ? 'Finalizando...' : 'Salvar e Copiar Fotos'}
+        </button>
+      </div>
 
       {/* Actions */}
       <div className="flex justify-center gap-4">

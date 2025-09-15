@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   generateThumbnail: (photoPath) => ipcRenderer.invoke('generate-thumbnail', photoPath),
   
+  // Save remaining ungrouped photos to destination/Não Agrupadas
+  saveUngroupedPhotos: (data) => ipcRenderer.invoke('save-ungrouped-photos', data),
+  
   // License verification (Phase 3)
   checkLicense: (userId) => ipcRenderer.invoke('check-license', userId),
 

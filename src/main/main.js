@@ -167,16 +167,22 @@ ipcMain.handle('validate-folder', async (event, folderPath) => {
 // Read and parse CSV file
 ipcMain.handle('parse-csv', async (event, filePath) => {
   try {
-    // Try different encodings
-    let csvData
-    try {
-      csvData = await fs.readFile(filePath, 'utf-8')
-    } catch (utf8Error) {
-      try {
-        csvData = await fs.readFile(filePath, 'latin1')
-      } catch (latin1Error) {
-        csvData = await fs.readFile(filePath, 'ascii')
-      }
+    // Read raw bytes to decide encoding (avoid mojibake like "JoÃ£o")
+    const buffer = await fs.readFile(filePath)
+
+    // Helper to detect common mojibake patterns when UTF-8 is misread
+    const looksMojibake = (text) => {
+      const suspicious = (text.match(/[ÃÂ][\x80-\xBF]/g) || []).length
+      return suspicious > 0
+    }
+
+    // Decode preferring UTF-8 (remove BOM), fallback to latin1 if mojibake
+    let csvData = buffer.toString('utf8')
+    if (csvData.charCodeAt(0) === 0xFEFF) {
+      csvData = csvData.slice(1)
+    }
+    if (looksMojibake(csvData)) {
+      csvData = buffer.toString('latin1')
     }
     
     console.log('CSV file read successfully:', filePath)
@@ -379,6 +385,35 @@ ipcMain.handle('generate-thumbnail', async (event, photoPath) => {
     }
   } catch (error) {
     console.error('Error generating thumbnail:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Finalize processing: run only the copy stage with current grouping results
+// Save only ungrouped photos to destination (without reprocessing)
+ipcMain.handle('save-ungrouped-photos', async (event, { destinationFolder, ungroupedPhotos, eventName }) => {
+  try {
+    if (!destinationFolder) return { success: false, error: 'Destination folder missing' }
+    const ungroupedFolder = path.join(destinationFolder, eventName || 'Evento', 'Não Agrupadas')
+    await fs.mkdir(ungroupedFolder, { recursive: true })
+
+    const moved = []
+    const errors = []
+    for (const photo of ungroupedPhotos || []) {
+      try {
+        const sourcePath = typeof photo === 'string' ? photo : (photo.file_path || photo.path)
+        if (!sourcePath) continue
+        const fileName = path.basename(sourcePath)
+        const destPath = path.join(ungroupedFolder, fileName)
+        await fs.copyFile(sourcePath, destPath)
+        moved.push({ from: sourcePath, to: destPath })
+      } catch (e) {
+        errors.push({ photo, error: e.message })
+      }
+    }
+
+    return { success: errors.length === 0, moved, errors }
+  } catch (error) {
     return { success: false, error: error.message }
   }
 })

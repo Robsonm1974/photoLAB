@@ -227,7 +227,14 @@ class PhotoLabProcessor:
         return results
     
     def _copy_photos_to_folders(self, grouping_results, config):
-        """Copy photos to their respective participant folders."""
+        """Copy photos to their respective participant folders.
+
+        Rules:
+        - Use the existing directory structure created at the beginning:
+          <destination>/<turma>/<participantName - QRCode>/
+        - Rename files to include QR code suffix using underscore:
+          originalName_qr1234567.jpg
+        """
         import shutil
         
         try:
@@ -252,14 +259,57 @@ class PhotoLabProcessor:
             # Create base destination folder if it doesn't exist
             os.makedirs(destination_base, exist_ok=True)
             
+            def sanitize_path_component(text: str) -> str:
+                """Sanitize a path component for cross-platform compatibility."""
+                if text is None:
+                    return ""
+                # Replace forbidden characters and strip spaces
+                forbidden = '<>:"/\\|?*'
+                sanitized = ''.join('_' if ch in forbidden else ch for ch in str(text))
+                return sanitized.strip()
+
+            def fix_mojibake(text: str) -> str:
+                """Fix common mojibake (UTF-8 seen as Latin-1) without breaking valid strings."""
+                if not isinstance(text, str):
+                    return text
+                # Heuristic: if contains typical mojibake lead bytes
+                if any(ch in text for ch in ['Ã', 'Â']):
+                    try:
+                        return text.encode('latin1', errors='ignore').decode('utf-8', errors='ignore')
+                    except Exception:
+                        return text
+                return text
+
+            def filename_with_qr(original_filename: str, qr_code: str) -> str:
+                name, ext = os.path.splitext(original_filename)
+                qr = str(qr_code or '').strip()
+                # Normalize to lowercase 'qr' prefix with digits/content after
+                if qr.lower().startswith('qr'):
+                    qr_suffix = 'qr' + qr[2:]
+                else:
+                    qr_suffix = 'qr' + qr
+                return f"{name}_{qr_suffix}{ext}"
+
             # Copy photos for each group
             groups = grouping_results.get('groups', {})
             for qr_code, group_data in groups.items():
                 try:
-                    participant_name = group_data.get('participant', {}).get('name', f'QR_{qr_code}')
-                    
-                    # Create participant folder
-                    participant_folder = os.path.join(destination_base, participant_name)
+                    participant = group_data.get('participant', {}) or {}
+                    participant_name = participant.get('name', f'QR_{qr_code}')
+                    turma = participant.get('turma') or group_data.get('turma') or 'SemTurma'
+
+                    # Fix possible mojibake prior to creating directories
+                    participant_name = fix_mojibake(participant_name)
+                    turma = fix_mojibake(turma)
+
+                    # Build target structure: <dest>/<turma>/<participant - QR>
+                    turma_folder = os.path.join(destination_base, sanitize_path_component(turma))
+                    participant_folder_name = f"{participant_name} - {qr_code}"
+                    participant_folder = os.path.join(
+                        turma_folder,
+                        sanitize_path_component(participant_folder_name)
+                    )
+                    os.makedirs(turma_folder, exist_ok=True)
                     os.makedirs(participant_folder, exist_ok=True)
                     
                     # Copy photos to participant folder
@@ -273,8 +323,9 @@ class PhotoLabProcessor:
                                 })
                                 continue
                             
-                            # Generate destination filename
-                            file_name = os.path.basename(source_path)
+                            # Generate destination filename with _qr suffix
+                            original_name = os.path.basename(source_path)
+                            file_name = filename_with_qr(original_name, qr_code)
                             dest_path = os.path.join(participant_folder, file_name)
                             
                             # Copy file
@@ -284,11 +335,12 @@ class PhotoLabProcessor:
                                 'source': source_path,
                                 'destination': dest_path,
                                 'participant': participant_name,
-                                'qr_code': qr_code
+                                'qr_code': qr_code,
+                                'turma': turma
                             })
                             results['summary']['total_copied'] += 1
                             
-                            logger.info(f"Copied {file_name} to {participant_name} folder")
+                            logger.info(f"Copied {original_name} -> {file_name} to {participant_name}/{turma} folder")
                             
                         except Exception as e:
                             error_msg = f"Error copying {photo.get('file_name', 'Unknown')}: {str(e)}"

@@ -235,12 +235,19 @@ class PhotoGrouper:
         }
     
     def _serialize_groups(self):
-        """Convert groups to serializable format."""
+        """Convert groups to serializable format.
+
+        UI expects a 'participant' object with fields like 'turma' and 'qrCode'.
+        Keep 'participant_info' for backward compatibility.
+        """
         return {
             qr_code: {
                 'qr_code': group.qr_code,
                 'participant_name': group.participant_name,
                 'turma': group.turma,
+                # New field expected by UI
+                'participant': self.participants.get(qr_code, {}),
+                # Back-compat field kept
                 'participant_info': self.participants.get(qr_code, {}),
                 'photo_count': group.get_photo_count(),
                 'confidence_score': group.confidence_score,
