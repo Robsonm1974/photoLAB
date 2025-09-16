@@ -1,5 +1,5 @@
 import React from 'react'
-import { Camera, Folder, BarChart3, Settings } from 'lucide-react'
+import { Camera, Folder, BarChart3, Settings, FileText } from 'lucide-react'
 
 /**
  * Main Layout Component
@@ -12,6 +12,7 @@ const Layout = ({ children, currentPage, onNavigation }) => {
     { id: 'home', label: 'Início', icon: Camera },
     { id: 'processing', label: 'Processamento', icon: Folder },
     { id: 'results', label: 'Resultados', icon: BarChart3 },
+    { id: 'credentials', label: 'Credenciais', icon: FileText },
     { id: 'settings', label: 'Configurações', icon: Settings }
   ]
 

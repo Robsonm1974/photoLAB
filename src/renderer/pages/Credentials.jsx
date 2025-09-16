@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { 
   ArrowLeft, 
   Printer, 
@@ -8,8 +8,15 @@ import {
   User,
   QrCode,
   GraduationCap,
-  FileText
+  FileText,
+  Image,
+  Move,
+  Type,
+  Link
 } from 'lucide-react'
+import BackgroundSelector from '../components/Credentials/BackgroundSelector'
+import ElementPositioner from '../components/Credentials/ElementPositioner'
+import CredentialPreview from '../components/Credentials/CredentialPreview'
 
 /**
  * Credentials Generation Page
@@ -19,24 +26,85 @@ import {
  */
 const Credentials = ({ projectData, onNavigation }) => {
   const [credentialsConfig, setCredentialsConfig] = useState({
-    includeQRCode: true,
-    includePhoto: false,
-    includeEventInfo: true,
-    includeClassInfo: true,
+    // Background
+    backgroundImage: null,
+    backgroundImagePath: '',
+    
+    // Elements positioning (10x15cm = 1181x1772px @ 300 DPI)
+    qrCode: {
+      enabled: true,
+      x: 50,
+      y: 50,
+      size: 200,
+      content: 'QR1234567' // Will be replaced with actual participant QR
+    },
+    name: {
+      enabled: true,
+      x: 50,
+      y: 300,
+      fontSize: 24,
+      fontFamily: 'Arial',
+      color: '#000000'
+    },
+    turma: {
+      enabled: true,
+      x: 50,
+      y: 350,
+      fontSize: 18,
+      fontFamily: 'Arial',
+      color: '#666666'
+    },
+    photographerUrl: {
+      enabled: true,
+      x: 50,
+      y: 400,
+      fontSize: 12,
+      fontFamily: 'Arial',
+      color: '#0066CC',
+      text: 'https://photomanager.com'
+    },
+    
+    // Layout
     paperSize: 'A4',
     orientation: 'portrait',
-    fontSize: 'medium',
-    showBorder: true,
-    showLogo: true
+    credentialsPerPage: 4, // 2x2 layout
+    showBorder: true
   })
   
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedCredentials, setGeneratedCredentials] = useState(null)
+  const [previewParticipant, setPreviewParticipant] = useState(null)
+  const [activeTab, setActiveTab] = useState('background') // background, elements, preview
+
+  // Set preview participant when project data changes
+  useEffect(() => {
+    if (projectData?.participants && projectData.participants.length > 0) {
+      setPreviewParticipant(projectData.participants[0])
+    }
+  }, [projectData?.participants])
 
   const handleConfigChange = useCallback((key, value) => {
     setCredentialsConfig(prev => ({
       ...prev,
       [key]: value
+    }))
+  }, [])
+
+  const handleElementConfigChange = useCallback((elementType, property, value) => {
+    setCredentialsConfig(prev => ({
+      ...prev,
+      [elementType]: {
+        ...prev[elementType],
+        [property]: value
+      }
+    }))
+  }, [])
+
+  const handleBackgroundSelect = useCallback((imagePath, imageData) => {
+    setCredentialsConfig(prev => ({
+      ...prev,
+      backgroundImage: imageData,
+      backgroundImagePath: imagePath
     }))
   }, [])
 
@@ -145,113 +213,123 @@ const Credentials = ({ projectData, onNavigation }) => {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          {[
+            { id: 'background', label: 'Background', icon: Image },
+            { id: 'elements', label: 'Elementos', icon: Move },
+            { id: 'preview', label: 'Preview', icon: Eye }
+          ].map((tab) => {
+            const Icon = tab.icon
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Configuration Panel */}
         <div className="space-y-6">
-          <div className="card">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Configurações das Credenciais
-            </h2>
-            
-            <div className="space-y-4">
-              {/* Content Options */}
-              <div>
-                <h3 className="font-medium text-gray-900 mb-2">Conteúdo</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={credentialsConfig.includeQRCode}
-                      onChange={(e) => handleConfigChange('includeQRCode', e.target.checked)}
-                      className="mr-2"
-                    />
-                    <QrCode className="w-4 h-4 mr-1" />
-                    Incluir QR Code
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={credentialsConfig.includeEventInfo}
-                      onChange={(e) => handleConfigChange('includeEventInfo', e.target.checked)}
-                      className="mr-2"
-                    />
-                    <FileText className="w-4 h-4 mr-1" />
-                    Incluir informações do evento
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={credentialsConfig.includeClassInfo}
-                      onChange={(e) => handleConfigChange('includeClassInfo', e.target.checked)}
-                      className="mr-2"
-                    />
-                    <GraduationCap className="w-4 h-4 mr-1" />
-                    Incluir informações da turma
-                  </label>
-                </div>
-              </div>
+          {activeTab === 'background' && (
+            <div className="card">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Image className="w-5 h-5" />
+                Background da Credencial
+              </h2>
+              <BackgroundSelector
+                onBackgroundSelect={handleBackgroundSelect}
+                currentBackground={credentialsConfig.backgroundImagePath}
+              />
+            </div>
+          )}
 
-              {/* Layout Options */}
-              <div>
-                <h3 className="font-medium text-gray-900 mb-2">Layout</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tamanho do Papel
-                    </label>
-                    <select
-                      value={credentialsConfig.paperSize}
-                      onChange={(e) => handleConfigChange('paperSize', e.target.value)}
-                      className="form-select"
-                    >
-                      <option value="A4">A4</option>
-                      <option value="A5">A5</option>
-                      <option value="Letter">Letter</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Orientação
-                    </label>
-                    <select
-                      value={credentialsConfig.orientation}
-                      onChange={(e) => handleConfigChange('orientation', e.target.value)}
-                      className="form-select"
-                    >
-                      <option value="portrait">Retrato</option>
-                      <option value="landscape">Paisagem</option>
-                    </select>
+          {activeTab === 'elements' && (
+            <div className="card">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Move className="w-5 h-5" />
+                Posicionamento dos Elementos
+              </h2>
+              <ElementPositioner
+                config={credentialsConfig}
+                onConfigChange={handleElementConfigChange}
+              />
+            </div>
+          )}
+
+          {activeTab === 'preview' && (
+            <div className="card">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Configurações Gerais
+              </h2>
+              
+              <div className="space-y-4">
+                {/* Layout Options */}
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">Layout</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tamanho do Papel
+                      </label>
+                      <select
+                        value={credentialsConfig.paperSize}
+                        onChange={(e) => handleConfigChange('paperSize', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="A4">A4</option>
+                        <option value="A5">A5</option>
+                        <option value="Letter">Letter</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Credenciais por Página
+                      </label>
+                      <select
+                        value={credentialsConfig.credentialsPerPage}
+                        onChange={(e) => handleConfigChange('credentialsPerPage', parseInt(e.target.value))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value={4}>4 (2x2)</option>
+                        <option value={2}>2 (1x2)</option>
+                        <option value={1}>1 (1x1)</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Style Options */}
-              <div>
-                <h3 className="font-medium text-gray-900 mb-2">Estilo</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={credentialsConfig.showBorder}
-                      onChange={(e) => handleConfigChange('showBorder', e.target.checked)}
-                      className="mr-2"
-                    />
-                    Mostrar borda
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={credentialsConfig.showLogo}
-                      onChange={(e) => handleConfigChange('showLogo', e.target.checked)}
-                      className="mr-2"
-                    />
-                    Mostrar logo
-                  </label>
+                {/* Style Options */}
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">Estilo</h3>
+                  <div className="space-y-2">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={credentialsConfig.showBorder}
+                        onChange={(e) => handleConfigChange('showBorder', e.target.checked)}
+                        className="mr-2"
+                      />
+                      Mostrar borda
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Preview and Actions */}
@@ -260,37 +338,14 @@ const Credentials = ({ projectData, onNavigation }) => {
           <div className="card">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Eye className="w-5 h-5" />
-              Pré-visualização
+              Pré-visualização (10x15cm)
             </h2>
             
-            {generatedCredentials ? (
-              <div className="space-y-4">
-                <div className="bg-gray-100 p-4 rounded border">
-                  <h3 className="font-semibold text-lg">Lorena Martins</h3>
-                  <p className="text-gray-600">5 ano</p>
-                  {credentialsConfig.includeQRCode && (
-                    <div className="mt-2 p-2 bg-white rounded border inline-block">
-                      <div className="w-16 h-16 bg-gray-300 rounded flex items-center justify-center">
-                        <QrCode className="w-8 h-8 text-gray-600" />
-                      </div>
-                    </div>
-                  )}
-                  {credentialsConfig.includeEventInfo && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      Evento: {projectData?.eventName}
-                    </p>
-                  )}
-                </div>
-                <p className="text-sm text-gray-600">
-                  {generatedCredentials.length} credenciais geradas
-                </p>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <User className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                <p>Gere as credenciais para ver a pré-visualização</p>
-              </div>
-            )}
+            <CredentialPreview
+              config={credentialsConfig}
+              participant={previewParticipant}
+              eventName={projectData?.eventName}
+            />
           </div>
 
           {/* Actions */}
