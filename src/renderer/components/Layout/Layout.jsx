@@ -1,5 +1,6 @@
 import React from 'react'
-import { Camera, Folder, BarChart3, Settings, FileText } from 'lucide-react'
+import { Camera, Folder, BarChart3, Settings, FileText, FolderOpen } from 'lucide-react'
+import RecentProjects from '../RecentProjects'
 
 /**
  * Main Layout Component
@@ -7,9 +8,10 @@ import { Camera, Folder, BarChart3, Settings, FileText } from 'lucide-react'
  * Provides the overall application layout with navigation sidebar
  * and main content area. Follows design system from agent_rules.md
  */
-const Layout = ({ children, currentPage, onNavigation }) => {
+const Layout = ({ children, currentPage, onNavigation, onProjectLoad, onNewProject }) => {
   const navigationItems = [
     { id: 'home', label: 'Início', icon: Camera },
+    { id: 'projects', label: 'Projetos', icon: FolderOpen },
     { id: 'processing', label: 'Processamento', icon: Folder },
     { id: 'results', label: 'Resultados', icon: BarChart3 },
     { id: 'credentials', label: 'Credenciais', icon: FileText },
@@ -50,6 +52,14 @@ const Layout = ({ children, currentPage, onNavigation }) => {
               )
             })}
           </nav>
+
+          {/* Recent Projects Section */}
+          <div className="mt-8 border-t border-gray-200 pt-6">
+            <RecentProjects 
+              onProjectLoad={onProjectLoad}
+              onNewProject={onNewProject}
+            />
+          </div>
         </div>
       </aside>
 

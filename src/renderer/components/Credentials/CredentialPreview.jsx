@@ -251,3 +251,6 @@ const CredentialPreview = ({ config, participant, eventName }) => {
 }
 
 export default CredentialPreview
+
+
+

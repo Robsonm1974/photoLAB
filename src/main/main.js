@@ -2,6 +2,8 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs').promises
 const { spawn } = require('child_process')
+const DatabaseManager = require('./database')
+const QRCode = require('qrcode')
 
 /**
  * PhotoLab Main Process
@@ -12,6 +14,7 @@ const { spawn } = require('child_process')
 
 // Keep a global reference of the window object
 let mainWindow
+let databaseManager
 
 // Environment check
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
@@ -60,7 +63,20 @@ function createWindow() {
 /**
  * App event handlers
  */
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  console.log('App is ready, initializing database...')
+  
+  // Initialize database
+  databaseManager = new DatabaseManager()
+  const dbInit = await databaseManager.initialize()
+  
+  if (!dbInit.success) {
+    console.error('Failed to initialize database:', dbInit.error)
+    // Don't exit, continue without database for now
+  } else {
+    console.log('Database initialized successfully:', dbInit.dbPath)
+  }
+
   createWindow()
 
   // On macOS, re-create window when dock icon is clicked
@@ -418,27 +434,172 @@ ipcMain.handle('save-ungrouped-photos', async (event, { destinationFolder, ungro
   }
 })
 
+// Generate credential HTML with CSS (10x15cm format)
+async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, config }) {
+  // Convert cm to pixels (1cm = 37.8px at 96 DPI, but we'll use 300 DPI for print quality)
+  // 10x15cm = 1181x1772px at 300 DPI
+  const widthPx = 1181
+  const heightPx = 1772
+  
+  const backgroundStyle = config.backgroundImage 
+    ? `background-image: url('${config.backgroundImage}'); background-size: cover; background-position: center;`
+    : 'background-color: #FFFFFF;'
+  
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credencial - ${participant.name}</title>
+    <style>
+        @page {
+            size: 10cm 15cm;
+            margin: 0;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            width: ${widthPx}px;
+            height: ${heightPx}px;
+            ${backgroundStyle}
+            font-family: Arial, sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .credential-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        
+        .qr-code {
+            position: absolute;
+            width: ${config.qrCode?.size || 600}px;
+            height: ${config.qrCode?.size || 600}px;
+            left: ${config.qrCode?.x || 390}px;
+            top: ${config.qrCode?.y || 440}px;
+        }
+        
+        .participant-name {
+            position: absolute;
+            left: ${config.name?.x || 400}px;
+            top: ${config.name?.y || 1200}px;
+            color: ${config.name?.color || '#000000'};
+            font-size: ${config.name?.fontSize || 24}px;
+            font-family: ${config.name?.fontFamily || 'Arial'};
+            font-weight: bold;
+        }
+        
+        .participant-turma {
+            position: absolute;
+            left: ${config.turma?.x || 50}px;
+            top: ${config.turma?.y || 350}px;
+            color: ${config.turma?.color || '#666666'};
+            font-size: ${config.turma?.fontSize || 18}px;
+            font-family: ${config.turma?.fontFamily || 'Arial'};
+        }
+        
+        .photographer-url {
+            position: absolute;
+            left: ${config.photographerUrl?.x || 50}px;
+            top: ${config.photographerUrl?.y || 400}px;
+            color: ${config.photographerUrl?.color || '#0066CC'};
+            font-size: ${config.photographerUrl?.fontSize || 12}px;
+            font-family: ${config.photographerUrl?.fontFamily || 'Arial'};
+        }
+        
+        .event-name {
+            position: absolute;
+            left: ${config.eventName?.x || 50}px;
+            top: ${config.eventName?.y || 500}px;
+            color: ${config.eventName?.color || '#333333'};
+            font-size: ${config.eventName?.fontSize || 16}px;
+            font-family: ${config.eventName?.fontFamily || 'Arial'};
+            font-weight: bold;
+        }
+        
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="credential-container">
+        ${config.qrCode?.enabled ? `<img src="${qrCodeDataURL}" class="qr-code" alt="QR Code ${participant.qrCode}" />` : ''}
+        ${config.name?.enabled ? `<div class="participant-name">${participant.name}</div>` : ''}
+        ${config.turma?.enabled ? `<div class="participant-turma">${participant.turma}</div>` : ''}
+        ${config.photographerUrl?.enabled ? `<div class="photographer-url">${config.photographerUrl.text || 'https://photomanager.com'}</div>` : ''}
+        ${config.eventName?.enabled ? `<div class="event-name">${eventName}</div>` : ''}
+    </div>
+</body>
+</html>`
+}
+
 // Generate credentials for participants
 ipcMain.handle('generate-credentials', async (event, { participants, eventName, config }) => {
   try {
     console.log('Generating credentials for', participants.length, 'participants')
     
-    // For now, return mock credentials data
-    // In a real implementation, this would generate actual PDF/HTML credentials
-    const credentials = participants.map(participant => ({
-      id: participant.qrCode,
-      name: participant.name,
-      turma: participant.turma,
-      qrCode: participant.qrCode,
-      eventName: eventName,
-      generatedAt: new Date().toISOString(),
-      config: config
-    }))
+    // Create output directory for credential images
+    const outputDir = path.join(process.cwd(), 'temp', 'credentials')
+    await fs.mkdir(outputDir, { recursive: true })
+    
+    const generatedCredentials = []
+    
+    for (const participant of participants) {
+      try {
+        // Generate QR code as data URL
+        const qrCodeDataURL = await QRCode.toDataURL(participant.qrCode, {
+          width: config.qrCode?.size || 200,
+          margin: 1,
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          }
+        })
+        
+        // Generate credential HTML
+        const credentialHTML = await generateCredentialHTML({
+          participant,
+          eventName,
+          qrCodeDataURL,
+          config
+        })
+        
+        // Save HTML file
+        const fileName = `credential_${participant.name.replace(/[^a-zA-Z0-9]/g, '_')}_${participant.qrCode}.html`
+        const filePath = path.join(outputDir, fileName)
+        
+        await fs.writeFile(filePath, credentialHTML, 'utf8')
+        
+        generatedCredentials.push({
+          id: participant.qrCode,
+          name: participant.name,
+          turma: participant.turma,
+          qrCode: participant.qrCode,
+          eventName: eventName,
+          filePath: filePath,
+          generatedAt: new Date().toISOString(),
+          config: config
+        })
+        
+        console.log(`Generated credential for ${participant.name}`)
+      } catch (error) {
+        console.error(`Error generating credential for ${participant.name}:`, error)
+      }
+    }
     
     return {
       success: true,
-      credentials: credentials,
-      message: `${credentials.length} credenciais geradas com sucesso`
+      credentials: generatedCredentials,
+      message: `${generatedCredentials.length} credenciais geradas com sucesso`,
+      outputDirectory: outputDir
     }
   } catch (error) {
     console.error('Error generating credentials:', error)
@@ -446,16 +607,114 @@ ipcMain.handle('generate-credentials', async (event, { participants, eventName, 
   }
 })
 
+// Generate HTML for printing all credentials
+function generateCredentialsPrintHTML(credentials, eventName) {
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credenciais - ${eventName}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0.5cm;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: white;
+        }
+        
+        .credentials-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 0.5cm;
+            padding: 0.5cm;
+            width: 100%;
+            height: 100vh;
+        }
+        
+        .credential-frame {
+            width: 100%;
+            height: 0;
+            padding-bottom: 150%; /* 10:15 aspect ratio */
+            border: 1px solid #ccc;
+            page-break-inside: avoid;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .credential-iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        @media print {
+            .credentials-container {
+                gap: 5px;
+                padding: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="credentials-container">
+        ${credentials.map(credential => `
+            <div class="credential-frame">
+                <iframe src="file://${credential.filePath}" class="credential-iframe"></iframe>
+            </div>
+        `).join('')}
+    </div>
+    
+    <script>
+        window.onload = function() {
+            setTimeout(function() {
+                window.print();
+            }, 2000);
+        };
+    </script>
+</body>
+</html>`
+}
+
 // Print credentials
-ipcMain.handle('print-credentials', async (event, credentials) => {
+ipcMain.handle('print-credentials', async (event, credentials, eventName) => {
   try {
     console.log('Printing', credentials.length, 'credentials')
     
-    // For now, just show a success message
-    // In a real implementation, this would send to printer
+    // Create HTML with the generated images
+    const htmlContent = generateCredentialsPrintHTML(credentials, eventName)
+    
+    // Create temporary HTML file
+    const tempDir = path.join(process.cwd(), 'temp')
+    await fs.mkdir(tempDir, { recursive: true })
+    
+    const tempHtmlPath = path.join(tempDir, `credentials_print_${Date.now()}.html`)
+    await fs.writeFile(tempHtmlPath, htmlContent, 'utf8')
+    
+    // Open in browser for printing
+    await shell.openPath(tempHtmlPath)
+    
+    // Clean up after delay
+    setTimeout(async () => {
+      try {
+        await fs.unlink(tempHtmlPath)
+      } catch (e) {
+        console.warn('Could not delete temp file:', e.message)
+      }
+    }, 10000)
+    
     return {
       success: true,
-      message: `${credentials.length} credenciais enviadas para impressão`
+      message: `Abrindo ${credentials.length} credenciais para impressão`
     }
   } catch (error) {
     console.error('Error printing credentials:', error)
@@ -463,20 +722,35 @@ ipcMain.handle('print-credentials', async (event, credentials) => {
   }
 })
 
-// Save credentials as PDF
-ipcMain.handle('save-credentials', async (event, credentials, eventName) => {
+// Save credentials as images
+ipcMain.handle('save-credentials', async (event, credentials, eventName, projectSourceFolder) => {
   try {
-    console.log('Saving', credentials.length, 'credentials as PDF')
+    console.log('Saving', credentials.length, 'credentials as images')
     
-    // For now, just show a success message
-    // In a real implementation, this would generate and save PDF
-    const fileName = `credenciais_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`
-    const filePath = path.join(process.cwd(), 'output', fileName)
+    // Use project source folder if provided
+    const baseFolder = projectSourceFolder || process.cwd()
+    const outputFolder = path.join(baseFolder, 'credenciais_geradas')
+    
+    // Create output folder
+    await fs.mkdir(outputFolder, { recursive: true })
+    
+    // Copy credential HTML files to output folder
+    const savedFiles = []
+    for (const credential of credentials) {
+      if (credential.filePath) {
+        const fileName = `credential_${credential.name.replace(/[^a-zA-Z0-9]/g, '_')}_${credential.qrCode}.html`
+        const destPath = path.join(outputFolder, fileName)
+        
+        await fs.copyFile(credential.filePath, destPath)
+        savedFiles.push(destPath)
+      }
+    }
     
     return {
       success: true,
-      filePath: filePath,
-      message: `Credenciais salvas em: ${filePath}`
+      filePath: outputFolder,
+      savedFiles: savedFiles,
+      message: `${savedFiles.length} credenciais salvas em: ${outputFolder}`
     }
   } catch (error) {
     console.error('Error saving credentials:', error)
@@ -792,8 +1066,254 @@ function checkPythonPackages(resolve, pythonVersion) {
 }
 
 /**
+ * Database IPC Handlers
+ */
+
+// Save project
+ipcMain.handle('save-project', async (event, projectData) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.saveProject(projectData)
+    return result
+  } catch (error) {
+    console.error('Error in save-project handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Get all projects
+ipcMain.handle('get-projects', async () => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.getProjects()
+    return result
+  } catch (error) {
+    console.error('Error in get-projects handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Get project by ID
+ipcMain.handle('get-project', async (event, projectId) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.getProject(projectId)
+    return result
+  } catch (error) {
+    console.error('Error in get-project handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Save processing results
+ipcMain.handle('save-processing-results', async (event, projectId, results) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.saveProcessingResults(projectId, results)
+    return result
+  } catch (error) {
+    console.error('Error in save-processing-results handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Delete project
+ipcMain.handle('delete-project', async (event, projectId) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.deleteProject(projectId)
+    return result
+  } catch (error) {
+    console.error('Error in delete-project handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Cache QR result
+ipcMain.handle('cache-qr-result', async (event, filePath, qrCode, confidence, fileHash) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.cacheQRResult(filePath, qrCode, confidence, fileHash)
+    return result
+  } catch (error) {
+    console.error('Error in cache-qr-result handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Get cached QR result
+ipcMain.handle('get-cached-qr-result', async (event, filePath, fileHash) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.getCachedQRResult(filePath, fileHash)
+    return result
+  } catch (error) {
+    console.error('Error in get-cached-qr-result handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Update project configuration
+ipcMain.handle('update-project-config', async (event, projectId, config) => {
+  try {
+    if (!databaseManager) {
+      return { success: false, error: 'Database not initialized' }
+    }
+    const result = await databaseManager.updateProjectConfig(projectId, config)
+    return result
+  } catch (error) {
+    console.error('Error in update-project-config handler:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+/**
  * Utility Functions
  */
+
+// Generate HTML content for credentials printing
+function generateCredentialsHTML(credentials, eventName) {
+  const html = `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credenciais - ${eventName}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: white;
+        }
+        
+        .credentials-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            max-width: 100%;
+        }
+        
+        .credential {
+            border: 2px solid #333;
+            padding: 15px;
+            text-align: center;
+            background: white;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-inside: avoid;
+        }
+        
+        .credential-header {
+            font-size: 14px;
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .qr-code {
+            width: 80px;
+            height: 80px;
+            margin: 10px auto;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .participant-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #333;
+        }
+        
+        .participant-class {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .event-name {
+            font-size: 12px;
+            color: #999;
+            margin-top: auto;
+        }
+        
+        .photographer-url {
+            font-size: 10px;
+            color: #0066CC;
+            margin-top: 5px;
+        }
+        
+        @media print {
+            body {
+                margin: 0;
+                padding: 10px;
+            }
+            
+            .credentials-container {
+                gap: 15px;
+            }
+            
+            .credential {
+                min-height: 180px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="credentials-container">
+        ${credentials.map(credential => `
+            <div class="credential">
+                <div class="credential-header">CREDENCIAL DE PARTICIPAÇÃO</div>
+                <div class="qr-code">QR: ${credential.qrCode}</div>
+                <div class="participant-name">${credential.name}</div>
+                <div class="participant-class">${credential.turma}</div>
+                <div class="event-name">${eventName}</div>
+                <div class="photographer-url">https://photomanager.com</div>
+            </div>
+        `).join('')}
+    </div>
+    
+    <script>
+        // Auto-print when page loads
+        window.onload = function() {
+            setTimeout(function() {
+                window.print();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>`
+  
+  return html
+}
 
 // Sanitize file names for cross-platform compatibility
 function sanitizeFileName(fileName) {
@@ -802,3 +1322,10 @@ function sanitizeFileName(fileName) {
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+// Cleanup database on app quit
+app.on('before-quit', () => {
+  if (databaseManager) {
+    databaseManager.close()
+  }
+})

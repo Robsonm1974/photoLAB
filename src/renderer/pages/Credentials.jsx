@@ -83,6 +83,53 @@ const Credentials = ({ projectData, onNavigation }) => {
     }
   }, [projectData?.participants])
 
+  // Load saved credentials configuration when project is loaded
+  useEffect(() => {
+    const loadSavedConfig = async () => {
+      if (projectData?.projectId) {
+        try {
+          // Try to load from database first
+          if (window.electronAPI.getProject) {
+            const result = await window.electronAPI.getProject(projectData.projectId)
+            if (result.success && result.project.config) {
+              const config = result.project.config
+              if (config.credentialsConfig) {
+                setCredentialsConfig(prev => ({
+                  ...prev,
+                  ...config.credentialsConfig
+                }))
+                console.log('Loaded saved credentials configuration from database')
+                return
+              }
+            }
+          }
+          
+          // Fallback: try to load from localStorage
+          const tempKey = `photolab_credentials_config_${projectData.projectId}`
+          const savedConfig = localStorage.getItem(tempKey)
+          if (savedConfig) {
+            try {
+              const config = JSON.parse(savedConfig)
+              if (config.credentialsConfig) {
+                setCredentialsConfig(prev => ({
+                  ...prev,
+                  ...config.credentialsConfig
+                }))
+                console.log('Loaded saved credentials configuration from localStorage')
+              }
+            } catch (parseError) {
+              console.error('Error parsing saved config from localStorage:', parseError)
+            }
+          }
+        } catch (error) {
+          console.error('Error loading saved credentials config:', error)
+        }
+      }
+    }
+
+    loadSavedConfig()
+  }, [projectData?.projectId])
+
   const handleConfigChange = useCallback((key, value) => {
     setCredentialsConfig(prev => ({
       ...prev,
@@ -144,9 +191,9 @@ const Credentials = ({ projectData, onNavigation }) => {
     }
 
     try {
-      const result = await window.electronAPI.printCredentials(generatedCredentials)
+      const result = await window.electronAPI.printCredentials(generatedCredentials, projectData.eventName)
       if (result.success) {
-        alert('Credenciais enviadas para impressão!')
+        alert(result.message)
       } else {
         alert(`Erro ao imprimir: ${result.error}`)
       }
@@ -154,7 +201,7 @@ const Credentials = ({ projectData, onNavigation }) => {
       console.error('Error printing credentials:', error)
       alert(`Erro inesperado: ${error.message}`)
     }
-  }, [generatedCredentials])
+  }, [generatedCredentials, projectData.eventName])
 
   const handleSaveCredentials = useCallback(async () => {
     if (!generatedCredentials) {
@@ -163,9 +210,13 @@ const Credentials = ({ projectData, onNavigation }) => {
     }
 
     try {
-      const result = await window.electronAPI.saveCredentials(generatedCredentials, projectData.eventName)
+      const result = await window.electronAPI.saveCredentials(
+        generatedCredentials, 
+        projectData.eventName, 
+        projectData.sourceFolder
+      )
       if (result.success) {
-        alert(`Credenciais salvas em: ${result.filePath}`)
+        alert(result.message)
       } else {
         alert(`Erro ao salvar: ${result.error}`)
       }
@@ -173,7 +224,57 @@ const Credentials = ({ projectData, onNavigation }) => {
       console.error('Error saving credentials:', error)
       alert(`Erro inesperado: ${error.message}`)
     }
-  }, [generatedCredentials, projectData.eventName])
+  }, [generatedCredentials, projectData.eventName, projectData.sourceFolder])
+
+  const handleSaveCredentialsConfig = useCallback(async () => {
+    if (!projectData?.projectId) {
+      alert('Projeto não encontrado. Salve o projeto primeiro.')
+      return
+    }
+
+    try {
+      // Save credentials configuration to database
+      const configToSave = {
+        credentialsConfig: credentialsConfig,
+        savedAt: new Date().toISOString()
+      }
+
+      console.log('Saving credentials config:', configToSave)
+      console.log('Project ID:', projectData.projectId)
+
+      let result
+
+      // Try the new function first
+      if (window.electronAPI.updateProjectConfig) {
+        console.log('Using updateProjectConfig function')
+        result = await window.electronAPI.updateProjectConfig(projectData.projectId, configToSave)
+      } else {
+        // Fallback: save to localStorage temporarily
+        console.log('updateProjectConfig not available, saving to localStorage as fallback')
+        
+        try {
+          const tempKey = `photolab_credentials_config_${projectData.projectId}`
+          localStorage.setItem(tempKey, JSON.stringify(configToSave))
+          
+          alert('Configuração salva temporariamente no navegador.\n\nPara salvar permanentemente no banco de dados, reinicie o aplicativo e tente novamente.')
+          return
+        } catch (localError) {
+          console.error('Error saving to localStorage:', localError)
+          alert('Erro ao salvar configuração. Reinicie o aplicativo e tente novamente.')
+          return
+        }
+      }
+      
+      if (result.success) {
+        alert('Configuração de credenciais salva com sucesso!')
+      } else {
+        alert(`Erro ao salvar configuração: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error saving credentials config:', error)
+      alert(`Erro inesperado: ${error.message}`)
+    }
+  }, [credentialsConfig, projectData?.projectId])
 
   return (
     <div className="p-6 space-y-6">
@@ -353,6 +454,14 @@ const Credentials = ({ projectData, onNavigation }) => {
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Ações</h2>
             
             <div className="space-y-3">
+              <button
+                onClick={handleSaveCredentialsConfig}
+                className="btn-secondary w-full flex items-center justify-center space-x-2"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Salvar Configuração</span>
+              </button>
+
               <button
                 onClick={handleGenerateCredentials}
                 disabled={isGenerating}

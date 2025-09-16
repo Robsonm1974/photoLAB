@@ -83,6 +83,27 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
       updateProjectData('createdFolderPath', eventFolderPath)
       updateProjectData('creationResults', result.results)
       
+      // Save project to database
+      const projectToSave = {
+        name: projectData.eventName,
+        eventName: projectData.eventName,
+        sourceFolder: projectData.sourceFolder,
+        destinationFolder: eventFolderPath,
+        participants: projectData.participants,
+        config: {
+          createdDirectories: result.results.created,
+          errors: result.results.errors
+        }
+      }
+      
+      const saveResult = await window.electronAPI.saveProject(projectToSave)
+      if (saveResult.success) {
+        updateProjectData('projectId', saveResult.projectId)
+        console.log('Project saved successfully with ID:', saveResult.projectId)
+      } else {
+        console.warn('Failed to save project:', saveResult.error)
+      }
+      
       // Navigate to processing page
       onNavigation('processing')
     } catch (error) {

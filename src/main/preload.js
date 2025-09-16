@@ -45,6 +45,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Save remaining ungrouped photos to destination/Não Agrupadas
   saveUngroupedPhotos: (data) => ipcRenderer.invoke('save-ungrouped-photos', data),
   
+  // Database operations
+  saveProject: (projectData) => ipcRenderer.invoke('save-project', projectData),
+  getProjects: () => ipcRenderer.invoke('get-projects'),
+  getProject: (projectId) => ipcRenderer.invoke('get-project', projectId),
+  deleteProject: (projectId) => ipcRenderer.invoke('delete-project', projectId),
+  saveProcessingResults: (projectId, results) => ipcRenderer.invoke('save-processing-results', projectId, results),
+  
+  // QR Cache operations
+  cacheQRResult: (filePath, qrCode, confidence, fileHash) => 
+    ipcRenderer.invoke('cache-qr-result', filePath, qrCode, confidence, fileHash),
+  getCachedQRResult: (filePath, fileHash) => 
+    ipcRenderer.invoke('get-cached-qr-result', filePath, fileHash),
+  
+  // Project configuration
+  updateProjectConfig: (projectId, config) => 
+    ipcRenderer.invoke('update-project-config', projectId, config),
+  
   // License verification (Phase 3)
   checkLicense: (userId) => ipcRenderer.invoke('check-license', userId),
 
