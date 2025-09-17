@@ -49,11 +49,11 @@ const CredentialPreview = ({ config, participant, eventName }) => {
     }
   }, [participant?.qrCode, config.qrCode?.enabled, generateQRCode])
 
-  // Credential dimensions: 10x15cm = 1181x1772px @ 300 DPI
+  // Credential dimensions: 100mm x 150mm = 283x425px @ 72 DPI
   // For preview, we'll scale it down to fit in the container
-  const previewScale = 0.3
-  const previewWidth = 1181 * previewScale
-  const previewHeight = 1772 * previewScale
+  const previewScale = 0.8
+  const previewWidth = 283 * previewScale
+  const previewHeight = 425 * previewScale
 
   const renderElement = (elementType, elementConfig) => {
     if (!elementConfig?.enabled) return null
@@ -191,7 +191,7 @@ const CredentialPreview = ({ config, participant, eventName }) => {
       {/* Preview Info */}
       <div className="text-center space-y-2">
         <p className="text-sm text-gray-600">
-          Dimensões: 10x15cm (1181x1772px @ 300 DPI)
+          Dimensões: 100mm x 150mm (283x425px @ 72 DPI)
         </p>
         <p className="text-xs text-gray-500">
           Preview em escala reduzida para visualização

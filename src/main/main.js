@@ -434,16 +434,80 @@ ipcMain.handle('save-ungrouped-photos', async (event, { destinationFolder, ungro
   }
 })
 
+// Função utilitária para renderizar HTML offscreen e salvar como PNG
+async function renderCredentialToPng(html, outputPath) {
+  const { BrowserWindow } = require('electron')
+  
+  // Usar 72 DPI em vez de 300 DPI para arquivos menores
+  // 100mm x 150mm = 283px x 425px @ 72 DPI
+  const width = 283
+  const height = 425
+  
+  const win = new BrowserWindow({
+    show: false,
+    width: width,
+    height: height,
+    webPreferences: { 
+      offscreen: true,
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+  
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+    await new Promise(r => setTimeout(r, 1500)) // espera renderizar completamente
+    
+    // Capturar a página com dimensões específicas
+    const image = await win.webContents.capturePage({
+      x: 0,
+      y: 0,
+      width: width,
+      height: height
+    })
+    const buffer = image.toPNG()
+    
+    await fs.writeFile(outputPath, buffer)
+    return outputPath
+  } finally {
+    await win.destroy()
+  }
+}
+
 // Generate credential HTML with CSS (10x15cm format)
 async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, config }) {
-  // Convert cm to pixels (1cm = 37.8px at 96 DPI, but we'll use 300 DPI for print quality)
-  // 10x15cm = 1181x1772px at 300 DPI
-  const widthPx = 1181
-  const heightPx = 1772
+  // Sistema de coordenadas percentual baseado em 283x425px @ 72 DPI
+  const baseWidth = 283
+  const baseHeight = 425
   
   const backgroundStyle = config.backgroundImage 
     ? `background-image: url('${config.backgroundImage}'); background-size: cover; background-position: center;`
     : 'background-color: #FFFFFF;'
+  
+  // Converter posições para percentuais (ajustado para 283x425px)
+  const positions = {
+    qrCode: {
+      left: `${(config.qrCode?.x || 93) / baseWidth * 100}%`, // 390 * (283/1181) ≈ 93
+      top: `${(config.qrCode?.y || 105) / baseHeight * 100}%`, // 440 * (425/1772) ≈ 105
+      size: `${(config.qrCode?.size || 144) / baseWidth * 100}%` // 600 * (283/1181) ≈ 144
+    },
+    name: {
+      left: `${(config.name?.x || 96) / baseWidth * 100}%`, // 400 * (283/1181) ≈ 96
+      top: `${(config.name?.y || 288) / baseHeight * 100}%` // 1200 * (425/1772) ≈ 288
+    },
+    turma: {
+      left: `${(config.turma?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
+      top: `${(config.turma?.y || 84) / baseHeight * 100}%` // 350 * (425/1772) ≈ 84
+    },
+    photographerUrl: {
+      left: `${(config.photographerUrl?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
+      top: `${(config.photographerUrl?.y || 96) / baseHeight * 100}%` // 400 * (425/1772) ≈ 96
+    },
+    eventName: {
+      left: `${(config.eventName?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
+      top: `${(config.eventName?.y || 120) / baseHeight * 100}%` // 500 * (425/1772) ≈ 120
+    }
+  }
   
   return `
 <!DOCTYPE html>
@@ -453,16 +517,15 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Credencial - ${participant.name}</title>
     <style>
-        @page {
-            size: 10cm 15cm;
-            margin: 0;
+        * {
+            box-sizing: border-box;
         }
         
         body {
             margin: 0;
             padding: 0;
-            width: ${widthPx}px;
-            height: ${heightPx}px;
+            width: 283px;
+            height: 425px;
             ${backgroundStyle}
             font-family: Arial, sans-serif;
             position: relative;
@@ -477,55 +540,48 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
         
         .qr-code {
             position: absolute;
-            width: ${config.qrCode?.size || 600}px;
-            height: ${config.qrCode?.size || 600}px;
-            left: ${config.qrCode?.x || 390}px;
-            top: ${config.qrCode?.y || 440}px;
+            width: ${positions.qrCode.size};
+            height: ${positions.qrCode.size};
+            left: ${positions.qrCode.left};
+            top: ${positions.qrCode.top};
         }
         
         .participant-name {
             position: absolute;
-            left: ${config.name?.x || 400}px;
-            top: ${config.name?.y || 1200}px;
+            left: ${positions.name.left};
+            top: ${positions.name.top};
             color: ${config.name?.color || '#000000'};
-            font-size: ${config.name?.fontSize || 24}px;
+            font-size: ${config.name?.fontSize || 12}px; // Ajustado para legibilidade
             font-family: ${config.name?.fontFamily || 'Arial'};
             font-weight: bold;
         }
         
         .participant-turma {
             position: absolute;
-            left: ${config.turma?.x || 50}px;
-            top: ${config.turma?.y || 350}px;
+            left: ${positions.turma.left};
+            top: ${positions.turma.top};
             color: ${config.turma?.color || '#666666'};
-            font-size: ${config.turma?.fontSize || 18}px;
+            font-size: ${config.turma?.fontSize || 10}px; // Ajustado para legibilidade
             font-family: ${config.turma?.fontFamily || 'Arial'};
         }
         
         .photographer-url {
             position: absolute;
-            left: ${config.photographerUrl?.x || 50}px;
-            top: ${config.photographerUrl?.y || 400}px;
+            left: ${positions.photographerUrl.left};
+            top: ${positions.photographerUrl.top};
             color: ${config.photographerUrl?.color || '#0066CC'};
-            font-size: ${config.photographerUrl?.fontSize || 12}px;
+            font-size: ${config.photographerUrl?.fontSize || 8}px; // Ajustado para legibilidade
             font-family: ${config.photographerUrl?.fontFamily || 'Arial'};
         }
         
         .event-name {
             position: absolute;
-            left: ${config.eventName?.x || 50}px;
-            top: ${config.eventName?.y || 500}px;
+            left: ${positions.eventName.left};
+            top: ${positions.eventName.top};
             color: ${config.eventName?.color || '#333333'};
-            font-size: ${config.eventName?.fontSize || 16}px;
+            font-size: ${config.eventName?.fontSize || 9}px; // Ajustado para legibilidade
             font-family: ${config.eventName?.fontFamily || 'Arial'};
             font-weight: bold;
-        }
-        
-        @media print {
-            body {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
         }
     </style>
 </head>
@@ -542,21 +598,23 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
 }
 
 // Generate credentials for participants
-ipcMain.handle('generate-credentials', async (event, { participants, eventName, config }) => {
+ipcMain.handle('generate-credentials', async (event, { participants, eventName, config, destinationFolder }) => {
   try {
     console.log('Generating credentials for', participants.length, 'participants')
     
-    // Create output directory for credential images
-    const outputDir = path.join(process.cwd(), 'temp', 'credentials')
+    // Use destination folder if provided, otherwise fallback to current directory
+    const baseFolder = destinationFolder || process.cwd()
+    const outputDir = path.join(baseFolder, 'credenciais_geradas')
     await fs.mkdir(outputDir, { recursive: true })
     
     const generatedCredentials = []
     
     for (const participant of participants) {
       try {
-        // Generate QR code as data URL
+        // Generate QR code as data URL (ajustado para 72 DPI)
+        const qrCodeSize = config.qrCode?.size || 144 // 600 * (283/1181) ≈ 144
         const qrCodeDataURL = await QRCode.toDataURL(participant.qrCode, {
-          width: config.qrCode?.size || 200,
+          width: qrCodeSize,
           margin: 1,
           color: {
             dark: '#000000',
@@ -572,11 +630,13 @@ ipcMain.handle('generate-credentials', async (event, { participants, eventName, 
           config
         })
         
-        // Save HTML file
-        const fileName = `credential_${participant.name.replace(/[^a-zA-Z0-9]/g, '_')}_${participant.qrCode}.html`
+        // Nome do arquivo PNG
+        const safeName = participant.name.replace(/[^a-zA-Z0-9]/g, '_')
+        const fileName = `credential_${safeName}_${participant.qrCode}.png`
         const filePath = path.join(outputDir, fileName)
         
-        await fs.writeFile(filePath, credentialHTML, 'utf8')
+        // Renderizar e salvar como PNG
+        await renderCredentialToPng(credentialHTML, filePath)
         
         generatedCredentials.push({
           id: participant.qrCode,
@@ -589,7 +649,7 @@ ipcMain.handle('generate-credentials', async (event, { participants, eventName, 
           config: config
         })
         
-        console.log(`Generated credential for ${participant.name}`)
+        console.log(`Credential saved: ${filePath}`)
       } catch (error) {
         console.error(`Error generating credential for ${participant.name}:`, error)
       }
@@ -598,7 +658,7 @@ ipcMain.handle('generate-credentials', async (event, { participants, eventName, 
     return {
       success: true,
       credentials: generatedCredentials,
-      message: `${generatedCredentials.length} credenciais geradas com sucesso`,
+      message: `${generatedCredentials.length} credenciais salvas como imagens`,
       outputDirectory: outputDir
     }
   } catch (error) {
@@ -617,70 +677,45 @@ function generateCredentialsPrintHTML(credentials, eventName) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Credenciais - ${eventName}</title>
     <style>
-        @page {
-            size: A4;
-            margin: 0.5cm;
+        @page { 
+            size: A4; 
+            margin: 5mm; 
         }
         
-        body {
-            margin: 0;
-            padding: 0;
-            background: white;
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background: #fff; 
         }
         
-        .credentials-container {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            grid-template-rows: repeat(2, 1fr);
-            gap: 0.5cm;
-            padding: 0.5cm;
-            width: 100%;
-            height: 100vh;
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 5mm; 
         }
         
-        .credential-frame {
-            width: 100%;
-            height: 0;
-            padding-bottom: 150%; /* 10:15 aspect ratio */
-            border: 1px solid #ccc;
-            page-break-inside: avoid;
-            position: relative;
-            overflow: hidden;
+        .cell { 
+            width: 100mm; 
+            height: 150mm; 
+            page-break-inside: avoid; 
         }
         
-        .credential-iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-        
-        @media print {
-            .credentials-container {
-                gap: 5px;
-                padding: 5px;
-            }
+        .cell img { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            display: block; 
         }
     </style>
 </head>
 <body>
-    <div class="credentials-container">
-        ${credentials.map(credential => `
-            <div class="credential-frame">
-                <iframe src="file://${credential.filePath}" class="credential-iframe"></iframe>
-            </div>
-        `).join('')}
+    <div class="grid">
+        ${credentials.map(c => `
+            <div class="cell">
+                <img src="file://${c.filePath}" alt="${c.name}">
+            </div>`).join('')}
     </div>
-    
-    <script>
-        window.onload = function() {
-            setTimeout(function() {
-                window.print();
-            }, 2000);
-        };
-    </script>
+    <script>window.onload=()=>setTimeout(()=>print(),800)</script>
 </body>
 </html>`
 }
@@ -723,26 +758,24 @@ ipcMain.handle('print-credentials', async (event, credentials, eventName) => {
 })
 
 // Save credentials as images
-ipcMain.handle('save-credentials', async (event, credentials, eventName, projectSourceFolder) => {
+ipcMain.handle('save-credentials', async (event, credentials, eventName, destinationFolder) => {
   try {
-    console.log('Saving', credentials.length, 'credentials as images')
+    console.log('Confirming', credentials.length, 'credentials are saved as PNG images')
     
-    // Use project source folder if provided
-    const baseFolder = projectSourceFolder || process.cwd()
+    // Use destination folder if provided
+    const baseFolder = destinationFolder || process.cwd()
     const outputFolder = path.join(baseFolder, 'credenciais_geradas')
     
-    // Create output folder
-    await fs.mkdir(outputFolder, { recursive: true })
-    
-    // Copy credential HTML files to output folder
+    // Verify that the PNG files exist
     const savedFiles = []
     for (const credential of credentials) {
       if (credential.filePath) {
-        const fileName = `credential_${credential.name.replace(/[^a-zA-Z0-9]/g, '_')}_${credential.qrCode}.html`
-        const destPath = path.join(outputFolder, fileName)
-        
-        await fs.copyFile(credential.filePath, destPath)
-        savedFiles.push(destPath)
+        try {
+          await fs.access(credential.filePath)
+          savedFiles.push(credential.filePath)
+        } catch (e) {
+          console.warn(`PNG file not found: ${credential.filePath}`)
+        }
       }
     }
     
@@ -750,10 +783,10 @@ ipcMain.handle('save-credentials', async (event, credentials, eventName, project
       success: true,
       filePath: outputFolder,
       savedFiles: savedFiles,
-      message: `${savedFiles.length} credenciais salvas em: ${outputFolder}`
+      message: `${savedFiles.length} credenciais PNG confirmadas em: ${outputFolder}`
     }
   } catch (error) {
-    console.error('Error saving credentials:', error)
+    console.error('Error confirming credentials:', error)
     return { success: false, error: error.message }
   }
 })

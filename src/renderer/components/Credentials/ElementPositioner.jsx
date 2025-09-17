@@ -62,10 +62,10 @@ const ElementPositioner = ({ config, onConfigChange }) => {
 
   const resetElementPosition = useCallback((elementKey) => {
     const defaultPositions = {
-      qrCode: { x: 50, y: 50, size: 200 },
-      name: { x: 50, y: 300, fontSize: 24 },
-      turma: { x: 50, y: 350, fontSize: 18 },
-      photographerUrl: { x: 50, y: 400, fontSize: 12 }
+      qrCode: { x: 93, y: 105, size: 144 }, // Ajustado para 283x425px
+      name: { x: 96, y: 288, fontSize: 12 },
+      turma: { x: 12, y: 84, fontSize: 10 },
+      photographerUrl: { x: 12, y: 96, fontSize: 8 }
     }
     
     const defaults = defaultPositions[elementKey]
@@ -126,7 +126,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
                   onChange={(e) => handlePositionChange(element.key, 'x', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                   min="0"
-                  max="1000"
+                  max="283"
                 />
               </div>
               <div>
@@ -139,7 +139,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
                   onChange={(e) => handlePositionChange(element.key, 'y', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                   min="0"
-                  max="1500"
+                  max="425"
                 />
               </div>
             </div>
@@ -156,7 +156,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
                   onChange={(e) => handlePositionChange(element.key, 'size', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
                   min="50"
-                  max="500"
+                  max="200"
                 />
               </div>
             )}
@@ -264,7 +264,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
           <li>• <strong>Posição X/Y:</strong> Coordenadas em pixels (0,0 = canto superior esquerdo)</li>
           <li>• <strong>Tamanho:</strong> Para QR code, tamanho em pixels. Para texto, tamanho da fonte em pontos</li>
           <li>• <strong>Cor:</strong> Use códigos hexadecimais (#000000) ou selecione com o seletor</li>
-          <li>• <strong>Dimensões da credencial:</strong> 10x15cm (1181x1772 pixels @ 300 DPI)</li>
+          <li>• <strong>Dimensões da credencial:</strong> 100mm x 150mm (283x425 pixels @ 72 DPI)</li>
         </ul>
       </div>
     </div>

@@ -180,4 +180,3 @@ const RecentProjects = ({ onProjectLoad, onNewProject }) => {
 }
 
 export default RecentProjects
-

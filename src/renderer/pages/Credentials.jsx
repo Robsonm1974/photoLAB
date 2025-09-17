@@ -30,38 +30,38 @@ const Credentials = ({ projectData, onNavigation }) => {
     backgroundImage: null,
     backgroundImagePath: '',
     
-    // Elements positioning (10x15cm = 1181x1772px @ 300 DPI)
+    // Elements positioning (100mm x 150mm = 283x425px @ 72 DPI)
     qrCode: {
       enabled: true,
-      x: 50,
-      y: 50,
-      size: 200,
+      x: 93, // Posição ajustada para 283x425px
+      y: 105,
+      size: 144, // Tamanho ajustado para 283x425px
       content: 'QR1234567' // Will be replaced with actual participant QR
     },
     name: {
       enabled: true,
-      x: 50,
-      y: 300,
-      fontSize: 24,
+      x: 96, // Posição ajustada para 283x425px
+      y: 288,
+      fontSize: 12, // Tamanho ajustado para legibilidade
       fontFamily: 'Arial',
       color: '#000000'
     },
     turma: {
       enabled: true,
-      x: 50,
-      y: 350,
-      fontSize: 18,
+      x: 12, // Posição ajustada para 283x425px
+      y: 84,
+      fontSize: 10, // Tamanho ajustado para legibilidade
       fontFamily: 'Arial',
       color: '#666666'
     },
     photographerUrl: {
       enabled: true,
-      x: 50,
-      y: 400,
-      fontSize: 12,
+      x: 12, // Posição ajustada para 283x425px
+      y: 96,
+      fontSize: 8, // Tamanho ajustado para legibilidade
       fontFamily: 'Arial',
       color: '#0066CC',
-      text: 'https://photomanager.com'
+      text: 'https://photom.app'
     },
     
     // Layout
@@ -161,18 +161,24 @@ const Credentials = ({ projectData, onNavigation }) => {
       return
     }
 
+    if (!projectData?.createdFolderPath) {
+      alert('Pasta de destino não encontrada. Por favor, crie a estrutura do projeto primeiro.')
+      return
+    }
+
     setIsGenerating(true)
     try {
       // Generate credentials using Electron API
       const result = await window.electronAPI.generateCredentials({
         participants: projectData.participants,
         eventName: projectData.eventName,
-        config: credentialsConfig
+        config: credentialsConfig,
+        destinationFolder: projectData.createdFolderPath  // Usar a pasta de destino
       })
 
       if (result.success) {
         setGeneratedCredentials(result.credentials)
-        alert(`${result.credentials.length} credenciais geradas com sucesso!`)
+        alert(`${result.credentials.length} credenciais geradas com sucesso!\n\nSalvas em: ${result.outputDirectory}`)
       } else {
         alert(`Erro ao gerar credenciais: ${result.error}`)
       }
@@ -213,7 +219,7 @@ const Credentials = ({ projectData, onNavigation }) => {
       const result = await window.electronAPI.saveCredentials(
         generatedCredentials, 
         projectData.eventName, 
-        projectData.sourceFolder
+        projectData.createdFolderPath  // Usar a pasta de destino
       )
       if (result.success) {
         alert(result.message)
@@ -224,7 +230,7 @@ const Credentials = ({ projectData, onNavigation }) => {
       console.error('Error saving credentials:', error)
       alert(`Erro inesperado: ${error.message}`)
     }
-  }, [generatedCredentials, projectData.eventName, projectData.sourceFolder])
+  }, [generatedCredentials, projectData.eventName, projectData.createdFolderPath])
 
   const handleSaveCredentialsConfig = useCallback(async () => {
     if (!projectData?.projectId) {

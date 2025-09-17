@@ -197,4 +197,3 @@ const ProjectManager = ({ onProjectLoad, onNewProject }) => {
 }
 
 export default ProjectManager
-
