@@ -438,8 +438,6 @@ ipcMain.handle('save-ungrouped-photos', async (event, { destinationFolder, ungro
 async function renderCredentialToPng(html, outputPath) {
   const { BrowserWindow } = require('electron')
   
-  // Usar 72 DPI em vez de 300 DPI para arquivos menores
-  // 100mm x 150mm = 283px x 425px @ 72 DPI
   const width = 283
   const height = 425
   
@@ -447,6 +445,8 @@ async function renderCredentialToPng(html, outputPath) {
     show: false,
     width: width,
     height: height,
+    useContentSize: true,
+    backgroundColor: '#ffffffff',
     webPreferences: { 
       offscreen: true,
       nodeIntegration: false,
@@ -454,9 +454,15 @@ async function renderCredentialToPng(html, outputPath) {
     }
   })
   
+  // Forçar zoom = 1
+  win.webContents.setVisualZoomLevelLimits(1, 1)
+  win.webContents.setZoomFactor(1)
+  
   try {
     await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    await new Promise(r => setTimeout(r, 1500)) // espera renderizar completamente
+    
+    // Esperar fontes carregarem em vez de setTimeout
+    await win.webContents.executeJavaScript('document.fonts ? document.fonts.ready : Promise.resolve()')
     
     // Capturar a página com dimensões específicas
     const image = await win.webContents.capturePage({
@@ -476,7 +482,7 @@ async function renderCredentialToPng(html, outputPath) {
 
 // Generate credential HTML with CSS (10x15cm format)
 async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, config }) {
-  // Sistema de coordenadas percentual baseado em 283x425px @ 72 DPI
+  // Sistema de coordenadas em pixels fixos
   const baseWidth = 283
   const baseHeight = 425
   
@@ -484,30 +490,26 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
     ? `background-image: url('${config.backgroundImage}'); background-size: cover; background-position: center;`
     : 'background-color: #FFFFFF;'
   
-  // Converter posições para percentuais (ajustado para 283x425px)
-  const positions = {
-    qrCode: {
-      left: `${(config.qrCode?.x || 93) / baseWidth * 100}%`, // 390 * (283/1181) ≈ 93
-      top: `${(config.qrCode?.y || 105) / baseHeight * 100}%`, // 440 * (425/1772) ≈ 105
-      size: `${(config.qrCode?.size || 144) / baseWidth * 100}%` // 600 * (283/1181) ≈ 144
-    },
-    name: {
-      left: `${(config.name?.x || 96) / baseWidth * 100}%`, // 400 * (283/1181) ≈ 96
-      top: `${(config.name?.y || 288) / baseHeight * 100}%` // 1200 * (425/1772) ≈ 288
-    },
-    turma: {
-      left: `${(config.turma?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
-      top: `${(config.turma?.y || 84) / baseHeight * 100}%` // 350 * (425/1772) ≈ 84
-    },
-    photographerUrl: {
-      left: `${(config.photographerUrl?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
-      top: `${(config.photographerUrl?.y || 96) / baseHeight * 100}%` // 400 * (425/1772) ≈ 96
-    },
-    eventName: {
-      left: `${(config.eventName?.x || 12) / baseWidth * 100}%`, // 50 * (283/1181) ≈ 12
-      top: `${(config.eventName?.y || 120) / baseHeight * 100}%` // 500 * (425/1772) ≈ 120
-    }
-  }
+  // Valores em pixels (iguais para width e height do QR)
+  const qrSizePx = config.qrCode?.size || 144
+  const qrLeftPx = config.qrCode?.x || 93
+  const qrTopPx = config.qrCode?.y || 105
+  
+  const nameLeftPx = config.name?.x || 96
+  const nameTopPx = config.name?.y || 288
+  const nameFontPt = config.name?.fontSize || 12
+  
+  const turmaLeftPx = config.turma?.x || 12
+  const turmaTopPx = config.turma?.y || 84
+  const turmaFontPt = config.turma?.fontSize || 10
+  
+  const urlLeftPx = config.photographerUrl?.x || 12
+  const urlTopPx = config.photographerUrl?.y || 96
+  const urlFontPt = config.photographerUrl?.fontSize || 8
+  
+  const eventLeftPx = config.eventName?.x || 12
+  const eventTopPx = config.eventName?.y || 120
+  const eventFontPt = config.eventName?.fontSize || 9
   
   return `
 <!DOCTYPE html>
@@ -530,6 +532,8 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
             font-family: Arial, sans-serif;
             position: relative;
             overflow: hidden;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
         
         .credential-container {
@@ -540,46 +544,49 @@ async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, c
         
         .qr-code {
             position: absolute;
-            width: ${positions.qrCode.size};
-            height: ${positions.qrCode.size};
-            left: ${positions.qrCode.left};
-            top: ${positions.qrCode.top};
+            width: ${qrSizePx}px;
+            height: ${qrSizePx}px;
+            left: ${qrLeftPx}px;
+            top: ${qrTopPx}px;
+            aspect-ratio: 1 / 1;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
         }
         
         .participant-name {
             position: absolute;
-            left: ${positions.name.left};
-            top: ${positions.name.top};
+            left: ${nameLeftPx}px;
+            top: ${nameTopPx}px;
             color: ${config.name?.color || '#000000'};
-            font-size: ${config.name?.fontSize || 12}px; // Ajustado para legibilidade
+            font-size: ${nameFontPt}pt;
             font-family: ${config.name?.fontFamily || 'Arial'};
             font-weight: bold;
         }
         
         .participant-turma {
             position: absolute;
-            left: ${positions.turma.left};
-            top: ${positions.turma.top};
+            left: ${turmaLeftPx}px;
+            top: ${turmaTopPx}px;
             color: ${config.turma?.color || '#666666'};
-            font-size: ${config.turma?.fontSize || 10}px; // Ajustado para legibilidade
+            font-size: ${turmaFontPt}pt;
             font-family: ${config.turma?.fontFamily || 'Arial'};
         }
         
         .photographer-url {
             position: absolute;
-            left: ${positions.photographerUrl.left};
-            top: ${positions.photographerUrl.top};
+            left: ${urlLeftPx}px;
+            top: ${urlTopPx}px;
             color: ${config.photographerUrl?.color || '#0066CC'};
-            font-size: ${config.photographerUrl?.fontSize || 8}px; // Ajustado para legibilidade
+            font-size: ${urlFontPt}pt;
             font-family: ${config.photographerUrl?.fontFamily || 'Arial'};
         }
         
         .event-name {
             position: absolute;
-            left: ${positions.eventName.left};
-            top: ${positions.eventName.top};
+            left: ${eventLeftPx}px;
+            top: ${eventTopPx}px;
             color: ${config.eventName?.color || '#333333'};
-            font-size: ${config.eventName?.fontSize || 9}px; // Ajustado para legibilidade
+            font-size: ${eventFontPt}pt;
             font-family: ${config.eventName?.fontFamily || 'Arial'};
             font-weight: bold;
         }

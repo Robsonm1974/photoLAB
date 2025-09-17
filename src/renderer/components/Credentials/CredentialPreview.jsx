@@ -27,7 +27,7 @@ const CredentialPreview = ({ config, participant, eventName }) => {
       // Use the qrcode library to generate QR code
       const QRCode = (await import('qrcode')).default
       const dataUrl = await QRCode.toDataURL(text, {
-        width: config.qrCode?.size || 200,
+        width: config.qrCode?.size || 144,
         margin: 1,
         color: {
           dark: '#000000',
