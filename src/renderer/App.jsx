@@ -41,11 +41,25 @@ const App = () => {
 
   // Project management handlers
   const handleLoadProject = useCallback((project) => {
+    console.log('Loading project data:', {
+      id: project.id,
+      name: project.name,
+      event_name: project.event_name,
+      destination_folder: project.destination_folder,
+      photos_folder: project.photos_folder,
+      config: project.config
+    })
+    
     setProjectData({
-      sourceFolder: project.source_folder,
-      csvFile: { name: 'Carregado do projeto' },
+      sourceFolder: project.destination_folder,
+      destinationFolder: project.destination_folder,
+      photosFolder: project.photos_folder,
+      csvFile: project.config?.csvFileName ? { 
+        name: project.config.csvFileName,
+        path: project.config.csvFilePath || project.config.csvFileName
+      } : null,
       eventName: project.event_name,
-      participants: project.participants,
+      participants: project.participants || [],
       createdFolderPath: project.destination_folder,
       projectId: project.id
     })

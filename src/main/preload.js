@@ -13,9 +13,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File system operations
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   
+  selectPhotosFolder: () => ipcRenderer.invoke('select-photos-folder'),
+  
   selectFile: (filters) => ipcRenderer.invoke('select-file', filters),
   
   validateFolder: (folderPath) => ipcRenderer.invoke('validate-folder', folderPath),
+  
+  validateDestinationFolder: (folderPath) => ipcRenderer.invoke('validate-destination-folder', folderPath),
+  
+  validatePhotosFolder: (folderPath) => ipcRenderer.invoke('validate-photos-folder', folderPath),
   
   parseCSV: (filePath) => ipcRenderer.invoke('parse-csv', filePath),
   

@@ -8,7 +8,7 @@ import { Folder, AlertCircle, CheckCircle, Image } from 'lucide-react'
  * Validates folder exists and contains JPG files.
  * Follows patterns from agent_rules.md
  */
-const FolderSelector = ({ selectedFolder, onFolderSelected, label }) => {
+const FolderSelector = ({ selectedFolder, onFolderSelected, label, validatePhotos = true }) => {
   // Component state
   const [isLoading, setIsLoading] = useState(false)
   const [validationResult, setValidationResult] = useState(null)
@@ -35,15 +35,26 @@ const FolderSelector = ({ selectedFolder, onFolderSelected, label }) => {
 
       const folderPath = result.filePaths[0]
 
-      // Validate folder contains JPG files
-      const validation = await window.electronAPI.validateFolder(folderPath)
-      
-      if (!validation.valid) {
-        setError(validation.message)
-        return
+      // Only validate photos if validatePhotos is true
+      if (validatePhotos) {
+        const validation = await window.electronAPI.validateFolder(folderPath)
+        
+        if (!validation.valid) {
+          setError(validation.message)
+          return
+        }
+
+        setValidationResult(validation)
+      } else {
+        // Use destination folder validation (no JPG check)
+        const validation = await window.electronAPI.validateDestinationFolder(folderPath)
+        
+        if (!validation.valid) {
+          setError(validation.message)
+          return
+        }
       }
 
-      setValidationResult(validation)
       onFolderSelected(folderPath)
       
     } catch (error) {
@@ -52,7 +63,7 @@ const FolderSelector = ({ selectedFolder, onFolderSelected, label }) => {
     } finally {
       setIsLoading(false)
     }
-  }, [onFolderSelected])
+  }, [onFolderSelected, validatePhotos])
 
 
   // Reset selection
@@ -104,7 +115,7 @@ const FolderSelector = ({ selectedFolder, onFolderSelected, label }) => {
                 {selectedFolder}
               </p>
               
-              {validationResult && (
+              {validationResult && validatePhotos && (
                 <div className="flex items-center space-x-2 mt-2">
                   <Image className="w-4 h-4 text-blue-600" />
                   <span className="text-sm text-blue-700">
@@ -137,11 +148,13 @@ const FolderSelector = ({ selectedFolder, onFolderSelected, label }) => {
         </div>
       )}
 
-      {/* Help Text */}
-      <p className="text-xs text-gray-500">
-        Selecione a pasta que contém as fotos originais do evento. 
-        A pasta deve conter arquivos JPG ou JPEG.
-      </p>
+      {/* Help Text - Only show for photos validation */}
+      {validatePhotos && (
+        <p className="text-xs text-gray-500">
+          Selecione a pasta que contém as fotos originais do evento. 
+          A pasta deve conter arquivos JPG ou JPEG.
+        </p>
+      )}
     </div>
   )
 }

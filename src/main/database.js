@@ -51,79 +51,119 @@ class DatabaseManager {
    * Create database tables
    */
   async createTables() {
-    const tables = [
-      // Projects table
-      `CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        event_name TEXT NOT NULL,
-        source_folder TEXT NOT NULL,
-        destination_folder TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        status TEXT DEFAULT 'active',
-        config TEXT -- JSON string with project configuration
-      )`,
-
-      // Participants table
-      `CREATE TABLE IF NOT EXISTS participants (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        turma TEXT NOT NULL,
-        qr_code TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
-      )`,
-
-      // Processing results table
-      `CREATE TABLE IF NOT EXISTS processing_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        total_photos INTEGER DEFAULT 0,
-        qr_detected INTEGER DEFAULT 0,
-        grouped_photos INTEGER DEFAULT 0,
-        ungrouped_photos INTEGER DEFAULT 0,
-        processing_time INTEGER, -- in seconds
-        results_data TEXT, -- JSON string with detailed results
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
-      )`,
-
-      // QR cache table (for performance)
-      `CREATE TABLE IF NOT EXISTS qr_cache (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path TEXT UNIQUE NOT NULL,
-        qr_code TEXT,
-        confidence REAL,
-        detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        file_hash TEXT -- for cache invalidation
-      )`,
-
-      // App settings table
-      `CREATE TABLE IF NOT EXISTS app_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`
-    ]
-
-    for (const tableSQL of tables) {
-      await this.runQuery(tableSQL)
-    }
-
-    // Create indexes for performance
-    const indexes = [
-      'CREATE INDEX IF NOT EXISTS idx_participants_project_id ON participants(project_id)',
-      'CREATE INDEX IF NOT EXISTS idx_participants_qr_code ON participants(qr_code)',
-      'CREATE INDEX IF NOT EXISTS idx_processing_results_project_id ON processing_results(project_id)',
-      'CREATE INDEX IF NOT EXISTS idx_qr_cache_file_path ON qr_cache(file_path)',
-      'CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)'
-    ]
-
-    for (const indexSQL of indexes) {
-      await this.runQuery(indexSQL)
-    }
+    return new Promise((resolve, reject) => {
+      const createProjectsTable = `
+        CREATE TABLE IF NOT EXISTS projects (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          event_name TEXT NOT NULL,
+          source_folder TEXT, -- Pasta de destino (onde criar estrutura)
+          destination_folder TEXT, -- Pasta de destino (onde criar estrutura)
+          photos_folder TEXT NOT NULL, -- Pasta das fotos originais
+          participants TEXT, -- JSON string com lista de participantes
+          config TEXT, -- JSON string com configurações do projeto
+          status TEXT DEFAULT 'active', -- active, completed, archived
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `
+      
+      const createProcessingResultsTable = `
+        CREATE TABLE IF NOT EXISTS processing_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          stage TEXT NOT NULL, -- qr_detection, grouping, copying, completed
+          results TEXT, -- JSON string com resultados
+          status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
+          error_message TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+        )
+      `
+      
+      const createQRCacheTable = `
+        CREATE TABLE IF NOT EXISTS qr_cache (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          file_hash TEXT NOT NULL,
+          qr_code TEXT,
+          confidence REAL,
+          detection_method TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(file_path, file_hash)
+        )
+      `
+      
+      const createCredentialsTable = `
+        CREATE TABLE IF NOT EXISTS credentials (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          participant_name TEXT NOT NULL,
+          qr_code TEXT NOT NULL,
+          turma TEXT,
+          file_path TEXT,
+          generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+        )
+      `
+      
+      const createTemplatesTable = `
+        CREATE TABLE IF NOT EXISTS templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL, -- anuario, natalino, formatura, etc
+          template_data TEXT, -- JSON string com configurações do template
+          preview_image TEXT, -- Caminho para imagem de preview
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `
+      
+      const createTemplateResultsTable = `
+        CREATE TABLE IF NOT EXISTS template_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          template_id INTEGER NOT NULL,
+          participant_id TEXT NOT NULL,
+          output_file_path TEXT,
+          status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+          FOREIGN KEY (template_id) REFERENCES templates (id) ON DELETE CASCADE
+        )
+      `
+      
+      // Execute all table creation queries
+      const queries = [
+        createProjectsTable,
+        createProcessingResultsTable,
+        createQRCacheTable,
+        createCredentialsTable,
+        createTemplatesTable,
+        createTemplateResultsTable
+      ]
+      
+      let completed = 0
+      let hasError = false
+      
+      queries.forEach((query, index) => {
+        this.db.run(query, (err) => {
+          if (err) {
+            console.error(`Error creating table ${index + 1}:`, err)
+            hasError = true
+            reject(err)
+          } else {
+            completed++
+            console.log(`Table ${index + 1} created successfully`)
+            
+            if (completed === queries.length && !hasError) {
+              console.log('All database tables created successfully')
+              resolve()
+            }
+          }
+        })
+      })
+    })
   }
 
   /**
@@ -175,106 +215,154 @@ class DatabaseManager {
    * Save a new project
    */
   async saveProject(projectData) {
-    try {
-      const { name, eventName, sourceFolder, destinationFolder, participants, config } = projectData
-
-      // Start transaction
-      await this.runQuery('BEGIN TRANSACTION')
-
-      // Insert project
-      const projectResult = await this.runQuery(
-        `INSERT INTO projects (name, event_name, source_folder, destination_folder, config)
-         VALUES (?, ?, ?, ?, ?)`,
-        [name, eventName, sourceFolder, destinationFolder, JSON.stringify(config)]
-      )
-
-      const projectId = projectResult.id
-
-      // Insert participants
-      for (const participant of participants) {
-        await this.runQuery(
-          `INSERT INTO participants (project_id, name, turma, qr_code)
-           VALUES (?, ?, ?, ?)`,
-          [projectId, participant.name, participant.turma, participant.qrCode]
-        )
+    return new Promise((resolve, reject) => {
+      try {
+        const {
+          name,
+          eventName,
+          sourceFolder,
+          destinationFolder,
+          photosFolder,
+          participants,
+          config
+        } = projectData
+        
+        const participantsJson = JSON.stringify(participants || [])
+        const configJson = JSON.stringify(config || {})
+        
+        const query = `
+          INSERT INTO projects (
+            name, event_name, source_folder, destination_folder, 
+            photos_folder, participants, config, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+        `
+        
+        this.db.run(query, [
+          name,
+          eventName,
+          sourceFolder || null,
+          destinationFolder,
+          photosFolder,
+          participantsJson,
+          configJson
+        ], function(err) {
+          if (err) {
+            console.error('Error saving project:', err)
+            reject(err)
+          } else {
+            console.log(`Project saved with ID: ${this.lastID}`)
+            resolve({
+              success: true,
+              projectId: this.lastID
+            })
+          }
+        })
+      } catch (error) {
+        console.error('Error in saveProject:', error)
+        reject(error)
       }
-
-      // Commit transaction
-      await this.runQuery('COMMIT')
-
-      return { success: true, projectId }
-    } catch (error) {
-      await this.runQuery('ROLLBACK')
-      console.error('Error saving project:', error)
-      return { success: false, error: error.message }
-    }
+    })
   }
 
   /**
    * Get all projects
    */
   async getProjects() {
-    try {
-      const projects = await this.getRows(
-        `SELECT p.*, 
-                COUNT(pr.id) as participant_count,
-                pr2.total_photos,
-                pr2.qr_detected,
-                pr2.created_at as last_processed
-         FROM projects p
-         LEFT JOIN participants pr ON p.id = pr.project_id
-         LEFT JOIN processing_results pr2 ON p.id = pr2.project_id
-         WHERE p.status = 'active'
-         GROUP BY p.id
-         ORDER BY p.updated_at DESC`
-      )
-
-      return { success: true, projects }
-    } catch (error) {
-      console.error('Error getting projects:', error)
-      return { success: false, error: error.message }
-    }
+    return new Promise((resolve, reject) => {
+      try {
+        // Simple query without complex JOINs
+        const query = `
+          SELECT * FROM projects 
+          WHERE status = 'active'
+          ORDER BY updated_at DESC
+        `
+        
+        this.db.all(query, [], (err, rows) => {
+          if (err) {
+            console.error('Error getting projects:', err)
+            reject(err)
+          } else {
+            // Parse JSON fields
+            const projects = rows.map(row => {
+              try {
+                const participants = row.participants ? JSON.parse(row.participants) : []
+                return {
+                  ...row,
+                  participants: participants,
+                  config: row.config ? JSON.parse(row.config) : {},
+                  participant_count: participants.length
+                }
+              } catch (parseError) {
+                console.warn('Error parsing project data:', parseError)
+                return {
+                  ...row,
+                  participants: [],
+                  config: {},
+                  participant_count: 0
+                }
+              }
+            })
+            
+            console.log(`Retrieved ${projects.length} projects`)
+            resolve({
+              success: true,
+              projects: projects
+            })
+          }
+        })
+      } catch (error) {
+        console.error('Error in getProjects:', error)
+        reject(error)
+      }
+    })
   }
 
   /**
    * Get project by ID with participants
    */
   async getProject(projectId) {
-    try {
-      const project = await this.getRow(
-        'SELECT * FROM projects WHERE id = ? AND status = "active"',
-        [projectId]
-      )
-
-      if (!project) {
-        return { success: false, error: 'Project not found' }
+    return new Promise((resolve, reject) => {
+      try {
+        const query = `
+          SELECT * FROM projects 
+          WHERE id = ? AND status = 'active'
+        `
+        
+        this.db.get(query, [projectId], (err, row) => {
+          if (err) {
+            console.error('Error getting project:', err)
+            reject(err)
+          } else if (!row) {
+            resolve({
+              success: false,
+              error: 'Project not found'
+            })
+          } else {
+            try {
+              const project = {
+                ...row,
+                participants: row.participants ? JSON.parse(row.participants) : [],
+                config: row.config ? JSON.parse(row.config) : {}
+              }
+              
+              resolve({
+                success: true,
+                project: project
+              })
+            } catch (parseError) {
+              console.error('Error parsing project data:', parseError)
+              resolve({
+                success: false,
+                error: 'Error parsing project data'
+              })
+            }
+          }
+        })
+      } catch (error) {
+        console.error('Error in getProject:', error)
+        reject(error)
       }
-
-      const participants = await this.getRows(
-        'SELECT * FROM participants WHERE project_id = ? ORDER BY name',
-        [projectId]
-      )
-
-      // Parse config JSON
-      if (project.config) {
-        project.config = JSON.parse(project.config)
-      }
-
-      return { 
-        success: true, 
-        project: {
-          ...project,
-          participants: participants.map(p => ({
-            name: p.name,
-            turma: p.turma,
-            qrCode: p.qr_code
-          }))
-        }
-      }
-    } catch (error) {
-      console.error('Error getting project:', error)
-      return { success: false, error: error.message }
-    }
+    })
   }
 
   /**

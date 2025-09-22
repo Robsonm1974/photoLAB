@@ -180,6 +180,30 @@ ipcMain.handle('validate-folder', async (event, folderPath) => {
   }
 })
 
+// Validate destination folder (without JPG validation) - NEW
+ipcMain.handle('validate-destination-folder', async (event, folderPath) => {
+  try {
+    const stats = await fs.stat(folderPath)
+    
+    if (!stats.isDirectory()) {
+      return { 
+        valid: false, 
+        message: 'O caminho selecionado não é uma pasta' 
+      }
+    }
+
+    return { 
+      valid: true, 
+      message: 'Pasta de destino válida'
+    }
+  } catch (error) {
+    return { 
+      valid: false, 
+      message: `Erro ao acessar pasta: ${error.message}` 
+    }
+  }
+})
+
 // Read and parse CSV file
 ipcMain.handle('parse-csv', async (event, filePath) => {
   try {
@@ -1362,6 +1386,63 @@ function sanitizeFileName(fileName) {
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+// Handle photos folder selection - NEW
+ipcMain.handle('select-photos-folder', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Selecionar Pasta das Fotos Originais',
+      buttonLabel: 'Selecionar Pasta'
+    })
+    
+    return result
+  } catch (error) {
+    console.error('Error selecting photos folder:', error)
+    throw error
+  }
+})
+
+// Validate photos folder - NEW
+ipcMain.handle('validate-photos-folder', async (event, folderPath) => {
+  try {
+    const stats = await fs.stat(folderPath)
+    
+    if (!stats.isDirectory()) {
+      return { 
+        valid: false, 
+        message: 'O caminho selecionado não é uma pasta' 
+      }
+    }
+
+    // Read folder contents
+    const files = await fs.readdir(folderPath)
+    
+    // Filter JPG files
+    const jpgFiles = files.filter(file => 
+      /\.(jpg|jpeg)$/i.test(file)
+    )
+
+    if (jpgFiles.length === 0) {
+      return { 
+        valid: false, 
+        message: 'Nenhum arquivo JPG encontrado na pasta selecionada' 
+      }
+    }
+
+    return { 
+      valid: true, 
+      message: `Encontrados ${jpgFiles.length} arquivos JPG`,
+      fileCount: jpgFiles.length,
+      files: jpgFiles
+    }
+  } catch (error) {
+    return { 
+      valid: false, 
+      message: `Erro ao acessar pasta: ${error.message}` 
+    }
+  }
+})
 
 // Cleanup database on app quit
 app.on('before-quit', () => {

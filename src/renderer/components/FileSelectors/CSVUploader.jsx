@@ -15,7 +15,7 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
   const [error, setError] = useState(null)
   const [previewData, setPreviewData] = useState([])
 
-  // Handle CSV file selection
+  // Handle file selection
   const handleFileSelect = useCallback(async () => {
     try {
       setIsLoading(true)
@@ -28,12 +28,10 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
         throw new Error('Electron API não disponível')
       }
 
-      const filters = [
-        { name: 'Arquivos CSV', extensions: ['csv'] },
-        { name: 'Todos os Arquivos', extensions: ['*'] }
-      ]
-
-      const result = await window.electronAPI.selectFile(filters)
+      const result = await window.electronAPI.selectFile([
+        { name: 'CSV Files', extensions: ['csv'] },
+        { name: 'All Files', extensions: ['*'] }
+      ])
       
       if (!result.filePaths || result.filePaths.length === 0) {
         // User cancelled
@@ -42,19 +40,19 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
 
       const filePath = result.filePaths[0]
 
-      // Read and parse CSV file
+      // Parse CSV file
       const parseResult = await window.electronAPI.parseCSV(filePath)
       
       if (!parseResult.success) {
-        setError(`Erro no arquivo CSV: ${parseResult.error}`)
+        setError(parseResult.error)
         return
       }
 
-      // Validate CSV structure
+      // Validate CSV data structure
       const validation = validateCSVData(parseResult.data)
       
       if (!validation.valid) {
-        setError(`Erro no arquivo CSV: ${validation.errors.join(', ')}`)
+        setError(validation.errors.join(', '))
         return
       }
 
@@ -62,7 +60,14 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
 
       setValidationResult(validation)
       setPreviewData(data.slice(0, 5)) // First 5 rows for preview
-      onCSVUploaded(filePath, data)
+      
+      // Create file object with name and path
+      const fileObject = {
+        name: filePath.split('\\').pop() || filePath.split('/').pop(), // Extract filename
+        path: filePath // Full path
+      }
+      
+      onCSVUploaded(fileObject, data)
       
     } catch (error) {
       console.error('CSV upload error:', error)
@@ -196,41 +201,83 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
         </button>
       </div>
 
-      {/* File Info & Preview */}
-      {csvFile && validationResult && (
+      {/* Selected File Info */}
+      {csvFile && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center space-x-2 mb-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
                 <span className="font-medium text-gray-900">Arquivo Validado</span>
               </div>
               <p className="text-sm text-gray-600 font-mono bg-gray-50 p-2 rounded mb-3">
-                {csvFile.split('\\').pop()}
+                {typeof csvFile === 'string' ? csvFile.split('\\').pop() : csvFile?.name || 'Arquivo CSV'}
               </p>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="flex items-center space-x-2">
-                  <Users className="w-4 h-4 text-blue-600" />
-                  <span className="text-blue-700">
-                    {validationResult.validRows || validationResult.rowCount} participantes
-                  </span>
+              {/* Validation Results */}
+              {validationResult && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+                    Resultado da Validação
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <span className="text-blue-700">
+                        {validationResult.validRows || validationResult.rowCount || 0} participantes
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="text-green-700">
+                        {validationResult.validRows || 0} válidos
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      <span className="text-red-700">
+                        {validationResult.errors?.length || 0} erros
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Show errors if any */}
+                  {validationResult.errors && validationResult.errors.length > 0 && (
+                    <div className="mt-3">
+                      <h5 className="font-medium text-red-700 mb-2">Erros encontrados:</h5>
+                      <ul className="text-sm text-red-600 space-y-1">
+                        {validationResult.errors.slice(0, 5).map((error, index) => (
+                          <li key={index} className="flex items-start">
+                            <span className="mr-2">•</span>
+                            <span>{error}</span>
+                          </li>
+                        ))}
+                        {validationResult.errors.length > 5 && (
+                          <li className="text-gray-500">
+                            ... e mais {validationResult.errors.length - 5} erros
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-purple-600" />
-                  <span className="text-purple-700">
-                    {validationResult.uniqueClasses} turmas
-                  </span>
-                </div>
-              </div>
+              )}
               
-              {/* Show detected fields */}
-              {validationResult.detectedFields && (
-                <div className="mt-3 text-xs text-gray-600">
-                  <strong>Campos detectados:</strong>{' '}
-                  {validationResult.detectedFields.name && `Nome: ${validationResult.detectedFields.name}`}
-                  {validationResult.detectedFields.turma && `, Turma: ${validationResult.detectedFields.turma}`}
-                  {validationResult.detectedFields.qrCode && `, QR: ${validationResult.detectedFields.qrCode}`}
+              {/* Preview Data */}
+              {previewData.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Prévia dos dados:</h4>
+                  <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded max-h-32 overflow-y-auto">
+                    <div className="font-mono">
+                      {previewData.map((row, index) => (
+                        <div key={index} className="mb-1">
+                          {row.name} | {row.turma} | {row.qrCode}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -242,35 +289,6 @@ const CSVUploader = ({ csvFile, participants, onCSVUploaded }) => {
               Alterar
             </button>
           </div>
-
-          {/* Preview Table */}
-          {previewData.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-900 mb-2">
-                Preview (primeiras 5 linhas):
-              </h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="text-left p-2 font-medium text-gray-700">Nome</th>
-                      <th className="text-left p-2 font-medium text-gray-700">Turma</th>
-                      <th className="text-left p-2 font-medium text-gray-700">QR Code</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewData.map((row, index) => (
-                      <tr key={index} className="border-t border-gray-100">
-                        <td className="p-2 text-gray-900">{row.name}</td>
-                        <td className="p-2 text-gray-700">{row.turma}</td>
-                        <td className="p-2 text-gray-600 font-mono">{row.qrCode}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
