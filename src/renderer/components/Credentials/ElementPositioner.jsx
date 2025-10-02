@@ -44,6 +44,12 @@ const ElementPositioner = ({ config, onConfigChange }) => {
       label: 'URL do Fotógrafo',
       icon: Link,
       description: 'URL do site do fotógrafo'
+    },
+    {
+      key: 'qrCodeText',
+      label: 'Código QR Texto',
+      icon: QrCode,
+      description: 'Código QR textual (ex: QR2245979)'
     }
   ]
 
@@ -65,7 +71,8 @@ const ElementPositioner = ({ config, onConfigChange }) => {
       qrCode: { x: 93, y: 105, size: 144 }, // Ajustado para 283x425px
       name: { x: 96, y: 288, fontSize: 12 },
       turma: { x: 12, y: 84, fontSize: 10 },
-      photographerUrl: { x: 12, y: 96, fontSize: 8 }
+      photographerUrl: { x: 12, y: 96, fontSize: 8 },
+      qrCodeText: { x: 104, y: 370, fontSize: 11 } // Nova posição padrão
     }
     
     const defaults = defaultPositions[elementKey]
@@ -162,7 +169,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
             )}
 
             {/* Font Size Controls */}
-            {['name', 'turma', 'photographerUrl'].includes(element.key) && (
+            {['name', 'turma', 'photographerUrl', 'qrCodeText'].includes(element.key) && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tamanho da Fonte (px)
@@ -179,7 +186,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
             )}
 
             {/* Color Controls */}
-            {['name', 'turma', 'photographerUrl'].includes(element.key) && (
+            {['name', 'turma', 'photographerUrl', 'qrCodeText'].includes(element.key) && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Cor

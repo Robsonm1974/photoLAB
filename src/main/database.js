@@ -1,4 +1,4 @@
-const sqlite3 = require('sqlite3').verbose()
+const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs').promises
 const { app } = require('electron')
@@ -29,13 +29,8 @@ class DatabaseManager {
       this.dbPath = path.join(dbDir, 'photolab.db')
       
       // Open database connection
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          console.error('Error opening database:', err)
-          throw err
-        }
-        console.log('Connected to SQLite database:', this.dbPath)
-      })
+      this.db = new Database(this.dbPath)
+      console.log('Connected to SQLite database:', this.dbPath)
 
       // Create tables
       await this.createTables()
@@ -51,7 +46,7 @@ class DatabaseManager {
    * Create database tables
    */
   async createTables() {
-    return new Promise((resolve, reject) => {
+    try {
       const createProjectsTable = `
         CREATE TABLE IF NOT EXISTS projects (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,188 +149,155 @@ class DatabaseManager {
         createAppSettingsTable
       ]
       
-      let completed = 0
-      let hasError = false
-      
       queries.forEach((query, index) => {
-        this.db.run(query, (err) => {
-          if (err) {
-            console.error(`Error creating table ${index + 1}:`, err)
-            hasError = true
-            reject(err)
-          } else {
-            completed++
-            console.log(`Table ${index + 1} created successfully`)
-            
-            if (completed === queries.length && !hasError) {
-              console.log('All database tables created successfully')
-              resolve()
-            }
-          }
-        })
+        this.db.exec(query)
+        console.log(`Table ${index + 1} created successfully`)
       })
-    })
+      
+      console.log('All database tables created successfully')
+    } catch (error) {
+      console.error('Error creating tables:', error)
+      throw error
+    }
   }
 
   /**
    * Run a SQL query
    */
   runQuery(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function(err) {
-        if (err) {
-          reject(err)
-        } else {
-          resolve({ id: this.lastID, changes: this.changes })
-        }
-      })
-    })
+    try {
+      const stmt = this.db.prepare(sql)
+      const result = stmt.run(params)
+      return { id: result.lastInsertRowid, changes: result.changes }
+    } catch (error) {
+      throw error
+    }
   }
 
   /**
    * Get a single row
    */
   getRow(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(row)
-        }
-      })
-    })
+    try {
+      const stmt = this.db.prepare(sql)
+      return stmt.get(params)
+    } catch (error) {
+      throw error
+    }
   }
 
   /**
    * Get multiple rows
    */
   getRows(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(rows)
-        }
-      })
-    })
+    try {
+      const stmt = this.db.prepare(sql)
+      return stmt.all(params)
+    } catch (error) {
+      throw error
+    }
   }
 
   /**
    * Save a new project
    */
   async saveProject(projectData) {
-    return new Promise((resolve, reject) => {
-      try {
-        const {
-          name,
-          eventName,
-          sourceFolder,
-          destinationFolder,
-          photosFolder,
-          participants,
-          config
-        } = projectData
-        
-        const participantsJson = JSON.stringify(participants || [])
-        const configJson = JSON.stringify(config || {})
-        
-        console.log('Saving project with data:', {
-          name,
-          eventName,
-          sourceFolder,
-          destinationFolder,
-          photosFolder,
-          participants: participants?.length || 0,
-          config: Object.keys(config || {})
-        })
-        
-        const query = `
-          INSERT INTO projects (
-            name, event_name, source_folder, destination_folder, 
-            photos_folder, participants, config, status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-        `
-        
-        this.db.run(query, [
-          name,
-          eventName,
-          sourceFolder || null,
-          destinationFolder,
-          photosFolder,
-          participantsJson,
-          configJson
-        ], function(err) {
-          if (err) {
-            console.error('Error saving project:', err)
-            reject(err)
-          } else {
-            console.log(`Project saved with ID: ${this.lastID}`)
-            resolve({
-              success: true,
-              projectId: this.lastID
-            })
-          }
-        })
-      } catch (error) {
-        console.error('Error in saveProject:', error)
-        reject(error)
+    try {
+      const {
+        name,
+        eventName,
+        sourceFolder,
+        destinationFolder,
+        photosFolder,
+        participants,
+        config
+      } = projectData
+      
+      const participantsJson = JSON.stringify(participants || [])
+      const configJson = JSON.stringify(config || {})
+      
+      console.log('Saving project with data:', {
+        name,
+        eventName,
+        sourceFolder,
+        destinationFolder,
+        photosFolder,
+        participants: participants?.length || 0,
+        config: Object.keys(config || {})
+      })
+      
+      const query = `
+        INSERT INTO projects (
+          name, event_name, source_folder, destination_folder, 
+          photos_folder, participants, config, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+      `
+      
+      const result = this.runQuery(query, [
+        name,
+        eventName,
+        sourceFolder || null,
+        destinationFolder,
+        photosFolder,
+        participantsJson,
+        configJson
+      ])
+      
+      console.log(`Project saved with ID: ${result.id}`)
+      return {
+        success: true,
+        projectId: result.id
       }
-    })
+    } catch (error) {
+      console.error('Error in saveProject:', error)
+      throw error
+    }
   }
 
   /**
    * Get all projects
    */
   async getProjects() {
-    return new Promise((resolve, reject) => {
-      try {
-        // Simple query without complex JOINs
-        const query = `
-          SELECT * FROM projects 
-          WHERE status = 'active'
-          ORDER BY updated_at DESC
-        `
-        
-        this.db.all(query, [], (err, rows) => {
-          if (err) {
-            console.error('Error getting projects:', err)
-            reject(err)
-          } else {
-            // Parse JSON fields
-            const projects = rows.map(row => {
-              try {
-                const participants = row.participants ? JSON.parse(row.participants) : []
-                return {
-                  ...row,
-                  participants: participants,
-                  config: row.config ? JSON.parse(row.config) : {},
-                  participant_count: participants.length
-                }
-              } catch (parseError) {
-                console.warn('Error parsing project data:', parseError)
-                return {
-                  ...row,
-                  participants: [],
-                  config: {},
-                  participant_count: 0
-                }
-              }
-            })
-            
-            console.log(`Retrieved ${projects.length} projects`)
-            resolve({
-              success: true,
-              projects: projects
-            })
+    try {
+      // Simple query without complex JOINs
+      const query = `
+        SELECT * FROM projects 
+        WHERE status = 'active'
+        ORDER BY updated_at DESC
+      `
+      
+      const rows = this.getRows(query, [])
+      
+      // Parse JSON fields
+      const projects = rows.map(row => {
+        try {
+          const participants = row.participants ? JSON.parse(row.participants) : []
+          return {
+            ...row,
+            participants: participants,
+            config: row.config ? JSON.parse(row.config) : {},
+            participant_count: participants.length
           }
-        })
-      } catch (error) {
-        console.error('Error in getProjects:', error)
-        reject(error)
+        } catch (parseError) {
+          console.warn('Error parsing project data:', parseError)
+          return {
+            ...row,
+            participants: [],
+            config: {},
+            participant_count: 0
+          }
+        }
+      })
+      
+      console.log(`Retrieved ${projects.length} projects`)
+      return {
+        success: true,
+        projects: projects
       }
-    })
+    } catch (error) {
+      console.error('Error in getProjects:', error)
+      throw error
+    }
   }
 
   /**
@@ -343,77 +305,72 @@ class DatabaseManager {
    */
   async getProject(projectId) {
     console.log('getProject called with ID:', projectId)
-    return new Promise((resolve, reject) => {
-      try {
-        const query = `
-          SELECT * FROM projects 
-          WHERE id = ? AND status = 'active'
-        `
-        
-        this.db.get(query, [projectId], (err, row) => {
-          if (err) {
-            console.error('Error getting project:', err)
-            reject(err)
-          } else if (!row) {
-            resolve({
-              success: false,
-              error: 'Project not found'
-            })
-          } else {
-            try {
-              console.log('Raw project data from database:', row)
-              console.log('Raw project data keys:', Object.keys(row || {}))
-              console.log('Raw project data values:', {
-                id: row?.id,
-                name: row?.name,
-                event_name: row?.event_name,
-                destination_folder: row?.destination_folder,
-                photos_folder: row?.photos_folder,
-                participants: row?.participants,
-                config: row?.config
-              })
-              
-              const project = {
-                ...row,
-                participants: row.participants ? JSON.parse(row.participants) : [],
-                config: row.config ? JSON.parse(row.config) : {}
-              }
-              
-              console.log('Config from database (raw):', row.config)
-              console.log('Config from database (parsed):', project.config)
-              console.log('Config type:', typeof project.config)
-              console.log('Config is empty object:', JSON.stringify(project.config) === '{}')
-              
-              console.log('Parsed project data:', project)
-              console.log('Parsed project data keys:', Object.keys(project || {}))
-              console.log('Parsed project data values:', {
-                id: project?.id,
-                name: project?.name,
-                event_name: project?.event_name,
-                destination_folder: project?.destination_folder,
-                photos_folder: project?.photos_folder,
-                participants: project?.participants?.length || 0,
-                config: Object.keys(project?.config || {})
-              })
-              
-              resolve({
-                success: true,
-                project: project
-              })
-            } catch (parseError) {
-              console.error('Error parsing project data:', parseError)
-              resolve({
-                success: false,
-                error: 'Error parsing project data'
-              })
-            }
-          }
-        })
-      } catch (error) {
-        console.error('Error in getProject:', error)
-        reject(error)
+    try {
+      const query = `
+        SELECT * FROM projects 
+        WHERE id = ? AND status = 'active'
+      `
+      
+      const row = this.getRow(query, [projectId])
+      
+      if (!row) {
+        return {
+          success: false,
+          error: 'Project not found'
+        }
       }
-    })
+      
+      try {
+        console.log('Raw project data from database:', row)
+        console.log('Raw project data keys:', Object.keys(row || {}))
+        console.log('Raw project data values:', {
+          id: row?.id,
+          name: row?.name,
+          event_name: row?.event_name,
+          destination_folder: row?.destination_folder,
+          photos_folder: row?.photos_folder,
+          participants: row?.participants,
+          config: row?.config
+        })
+        
+        const project = {
+          ...row,
+          participants: row.participants ? JSON.parse(row.participants) : [],
+          config: row.config ? JSON.parse(row.config) : {}
+        }
+        
+        console.log('Config from database (raw):', row.config)
+        console.log('Config from database (parsed):', project.config)
+        console.log('Config type:', typeof project.config)
+        console.log('Config is empty object:', JSON.stringify(project.config) === '{}')
+        
+        console.log('Parsed project data:', project)
+        console.log('Parsed project data keys:', Object.keys(project || {}))
+        console.log('Parsed project data values:', {
+          id: project?.id,
+          name: project?.name,
+          event_name: project?.event_name,
+          destination_folder: project?.destination_folder,
+          photos_folder: project?.photos_folder,
+          participants: project?.participants?.length || 0,
+          config: Object.keys(project?.config || {})
+        })
+        
+        return {
+          success: true,
+          project: project
+        }
+      } catch (parseError) {
+        console.error('Error parsing project data:', parseError)
+        return {
+          success: false,
+          error: 'Error parsing project data'
+        }
+      }
+    } catch (error) {
+      console.error('Error in getProject:', error)
+      throw error
+    }
   }
 
   /**
@@ -620,13 +577,12 @@ class DatabaseManager {
    */
   close() {
     if (this.db) {
-      this.db.close((err) => {
-        if (err) {
-          console.error('Error closing database:', err)
-        } else {
-          console.log('Database connection closed')
-        }
-      })
+      try {
+        this.db.close()
+        console.log('Database connection closed')
+      } catch (error) {
+        console.error('Error closing database:', error)
+      }
     }
   }
 }

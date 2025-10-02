@@ -149,6 +149,22 @@ const CredentialPreview = ({ config, participant, eventName }) => {
           </div>
         )
 
+      case 'qrCodeText':
+        return (
+          <div
+            key="qrCodeText"
+            style={{
+              ...style,
+              fontSize: `${elementConfig.fontSize * previewScale}px`,
+              fontFamily: elementConfig.fontFamily || 'Arial',
+              color: elementConfig.color || '#000000',
+              fontWeight: 'bold'
+            }}
+          >
+            {participant?.qrCode || 'QR1234567'}
+          </div>
+        )
+
       default:
         return null
     }
@@ -180,6 +196,7 @@ const CredentialPreview = ({ config, participant, eventName }) => {
           {renderElement('name', config.name)}
           {renderElement('turma', config.turma)}
           {renderElement('photographerUrl', config.photographerUrl)}
+          {renderElement('qrCodeText', config.qrCodeText)}
 
           {/* Border */}
           {config.showBorder && (
@@ -244,6 +261,10 @@ const CredentialPreview = ({ config, participant, eventName }) => {
         <div className="flex items-center space-x-2">
           <div className={`w-2 h-2 rounded-full ${config.photographerUrl?.enabled ? 'bg-green-500' : 'bg-gray-300'}`} />
           <span className="text-gray-600">URL</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className={`w-2 h-2 rounded-full ${config.qrCodeText?.enabled ? 'bg-green-500' : 'bg-gray-300'}`} />
+          <span className="text-gray-600">QR Texto</span>
         </div>
       </div>
     </div>
