@@ -1,19 +1,17 @@
 import React from 'react'
-import { Camera, Folder, BarChart3, Settings, FileText, FolderOpen } from 'lucide-react'
+import { Camera, FolderOpen, FileText, Settings } from 'lucide-react'
 import RecentProjects from '../RecentProjects'
 
 /**
- * Main Layout Component
+ * Main Layout Component - MVP VERSION
  * 
  * Provides the overall application layout with navigation sidebar
- * and main content area. Follows design system from agent_rules.md
+ * Removed: Processing and Results tabs
  */
 const Layout = ({ children, currentPage, onNavigation, onProjectLoad, onNewProject }) => {
   const navigationItems = [
     { id: 'home', label: 'Início', icon: Camera },
     { id: 'projects', label: 'Projetos', icon: FolderOpen },
-    { id: 'processing', label: 'Processamento', icon: Folder },
-    { id: 'results', label: 'Resultados', icon: BarChart3 },
     { id: 'credentials', label: 'Credenciais', icon: FileText },
     { id: 'settings', label: 'Configurações', icon: Settings }
   ]

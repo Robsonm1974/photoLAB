@@ -1,23 +1,21 @@
 import React, { useState, useCallback } from 'react'
-import { Folder, FileText, Settings, CheckCircle } from 'lucide-react'
 import Layout from './components/Layout/Layout'
 import Home from './pages/Home'
-import Processing from './pages/Processing'
-import OCRProcessing from './pages/OCRProcessing'
-import Results from './pages/Results'
-import Credentials from './pages/Credentials' // New import
+import Credentials from './pages/Credentials'
+import Settings from './pages/Settings'
 import ProjectManager from './components/ProjectManager'
 
 /**
- * Main Application Component
+ * Main Application Component - MVP VERSION
  * 
  * Manages the overall application state and routing.
- * Following the established patterns from agent_rules.md
+ * Removed: QR code processing and photo grouping functionality
  */
 const App = () => {
   // Application state
   const [currentPage, setCurrentPage] = useState('home')
   const [showProjectManager, setShowProjectManager] = useState(false)
+  const [isProjectLoaded, setIsProjectLoaded] = useState(false)
   const [projectData, setProjectData] = useState({
     sourceFolder: null,
     csvFile: null,
@@ -27,7 +25,6 @@ const App = () => {
     creationResults: null,
     projectId: null
   })
-  const [processingResults, setProcessingResults] = useState(null)
 
   // Navigation handler
   const handleNavigation = (page) => {
@@ -47,22 +44,42 @@ const App = () => {
       event_name: project.event_name,
       destination_folder: project.destination_folder,
       photos_folder: project.photos_folder,
+      participants: project.participants,
       config: project.config
     })
+    
+    // Restore all project data including CSV file info
+    const csvFile = project.config?.csvFileName ? {
+      name: project.config.csvFileName,
+      path: project.config.csvFilePath || project.config.csvFileName
+    } : null
     
     setProjectData({
       sourceFolder: project.destination_folder,
       destinationFolder: project.destination_folder,
       photosFolder: project.photos_folder,
-      csvFile: project.config?.csvFileName ? { 
-        name: project.config.csvFileName,
-        path: project.config.csvFilePath || project.config.csvFileName
-      } : null,
+      csvFile: csvFile,
       eventName: project.event_name,
       participants: project.participants || [],
       createdFolderPath: project.destination_folder,
+      creationResults: project.config ? {
+        createdDirectories: project.config.createdDirectories,
+        errors: project.config.errors,
+        structure: project.config.structure
+      } : null,
       projectId: project.id
     })
+    
+    console.log('Project data restored:', {
+      eventName: project.event_name,
+      destinationFolder: project.destination_folder,
+      photosFolder: project.photos_folder,
+      csvFile: csvFile,
+      participants: project.participants?.length || 0,
+      projectId: project.id
+    })
+    
+    setIsProjectLoaded(true)
     setShowProjectManager(false)
     setCurrentPage('home')
   }, [])
@@ -77,6 +94,7 @@ const App = () => {
       creationResults: null,
       projectId: null
     })
+    setIsProjectLoaded(false)
     setShowProjectManager(false)
     setCurrentPage('home')
   }, [])
@@ -90,28 +108,19 @@ const App = () => {
             projectData={projectData}
             setProjectData={setProjectData}
             onNavigation={handleNavigation}
-          />
-        )
-      case 'processing':
-        return (
-          <OCRProcessing 
-            onNavigation={handleNavigation}
-            projectData={projectData}
-            setProcessingResults={setProcessingResults}
-          />
-        )
-      case 'results':
-        return (
-          <Results 
-            projectData={projectData}
-            processingResults={processingResults}
-            onNavigation={handleNavigation}
+            isProjectLoaded={isProjectLoaded}
           />
         )
       case 'credentials':
         return (
           <Credentials 
             projectData={projectData}
+            onNavigation={handleNavigation}
+          />
+        )
+      case 'settings':
+        return (
+          <Settings 
             onNavigation={handleNavigation}
           />
         )

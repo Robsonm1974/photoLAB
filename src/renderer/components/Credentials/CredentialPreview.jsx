@@ -167,9 +167,9 @@ const CredentialPreview = ({ config, participant, eventName }) => {
           }}
         >
           {/* Background Image */}
-          {config.backgroundImage && (
+          {(config.backgroundImage || config.backgroundImageBase64 || config.backgroundImagePath) && (
             <img
-              src={config.backgroundImage}
+              src={config.backgroundImage || config.backgroundImageBase64 || (config.backgroundImagePath ? `file://${config.backgroundImagePath}` : '')}
               alt="Background"
               className="absolute inset-0 w-full h-full object-cover"
             />

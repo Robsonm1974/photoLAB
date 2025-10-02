@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react'
-import { AlertCircle, Play, CheckCircle, Folder, Save } from 'lucide-react'
+import { AlertCircle, Play, CheckCircle, Folder } from 'lucide-react'
 import FolderSelector from '../components/FileSelectors/FolderSelector'
 import CSVUploader from '../components/FileSelectors/CSVUploader'
 
@@ -19,12 +19,10 @@ const pathJoin = (basePath, eventName) => {
  * 3. Event name input
  * 4. Photos folder selection (NEW)
  */
-const Home = ({ projectData, setProjectData, onNavigation }) => {
+const Home = ({ projectData, setProjectData, onNavigation, isProjectLoaded }) => {
   // Local state for validation and UI feedback
   const [validationErrors, setValidationErrors] = useState([])
   const [isProcessing, setIsProcessing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState('')
 
   // Update project data
   const updateProjectData = useCallback((field, value) => {
@@ -82,49 +80,6 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
     return errors.length === 0
   }
 
-  // Handle save project configuration
-  const handleSaveProject = useCallback(async () => {
-    if (!validateProject()) {
-      return
-    }
-    
-    try {
-      setIsSaving(true)
-      setSaveMessage('')
-      
-      // Prepare project data for saving
-      const projectToSave = {
-        name: projectData.eventName,
-        eventName: projectData.eventName,
-        destinationFolder: projectData.destinationFolder,
-        photosFolder: projectData.photosFolder,
-        participants: projectData.participants,
-        config: {
-          csvFileName: projectData.csvFile?.name || 'participantes.csv',
-          totalParticipants: projectData.participants?.length || 0,
-          createdAt: new Date().toISOString()
-        }
-      }
-      
-      const saveResult = await window.electronAPI.saveProject(projectToSave)
-      if (saveResult.success) {
-        updateProjectData('projectId', saveResult.projectId)
-        setSaveMessage('✅ Projeto salvo com sucesso!')
-        console.log('Project saved successfully with ID:', saveResult.projectId)
-        
-        // Clear message after 3 seconds
-        setTimeout(() => setSaveMessage(''), 3000)
-      } else {
-        setSaveMessage('❌ Erro ao salvar projeto: ' + saveResult.error)
-        console.warn('Failed to save project:', saveResult.error)
-      }
-    } catch (error) {
-      console.error('Error saving project:', error)
-      setSaveMessage('❌ Erro ao salvar projeto. Tente novamente.')
-    } finally {
-      setIsSaving(false)
-    }
-  }, [projectData, updateProjectData])
 
   // Handle project start
   const handleStartProject = useCallback(async () => {
@@ -134,6 +89,27 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
     
     try {
       setIsProcessing(true)
+      
+      // Check if project already exists
+      const checkResult = await window.electronAPI.checkProjectExists(projectData.eventName)
+      if (checkResult.success && checkResult.exists) {
+        const shouldOverwrite = confirm(
+          `O projeto "${projectData.eventName}" já existe.\n\n` +
+          `Deseja sobrescrever o projeto existente?\n\n` +
+          `Clique "OK" para sobrescrever ou "Cancelar" para voltar.`
+        )
+        
+        if (!shouldOverwrite) {
+          setIsProcessing(false)
+          return
+        }
+        
+        // Delete existing project if user confirms
+        if (checkResult.project?.id) {
+          await window.electronAPI.deleteProject(checkResult.project.id)
+          console.log('Existing project deleted:', checkResult.project.id)
+        }
+      }
       
       // Get base path from destination folder
       const basePath = projectData.destinationFolder
@@ -150,13 +126,24 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
         return
       }
       
-      // Log success
-      console.log('Directory structure created successfully:', result.results)
+      // Log success with detailed information
+      console.log('Directory structure created successfully:')
+      console.log('- Event directory:', result.eventDir)
+      console.log('- Total directories created:', result.createdDirectories?.length || 0)
+      console.log('- Classes:', result.structure?.classes || [])
+      console.log('- Total participants:', result.structure?.totalParticipants || 0)
+      
+      if (result.errors && result.errors.length > 0) {
+        console.warn('Some errors occurred during directory creation:', result.errors)
+      }
       
       // Store the created structure path in project data
-      const eventFolderPath = pathJoin(basePath, projectData.eventName)
-      updateProjectData('createdFolderPath', eventFolderPath)
-      updateProjectData('creationResults', result.results)
+      updateProjectData('createdFolderPath', result.eventDir)
+      updateProjectData('creationResults', {
+        createdDirectories: result.createdDirectories,
+        errors: result.errors,
+        structure: result.structure
+      })
       
       // Save project to database with updated info
       const projectToSave = {
@@ -166,8 +153,8 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
         photosFolder: projectData.photosFolder,
         participants: projectData.participants,
         config: {
-          createdDirectories: result.results.created,
-          errors: result.results.errors,
+          createdDirectories: result.createdDirectories,
+          errors: result.errors,
           csvFileName: projectData.csvFile?.name || 'participantes.csv',
           totalParticipants: projectData.participants?.length || 0,
           createdAt: new Date().toISOString()
@@ -178,8 +165,15 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
       if (saveResult.success) {
         updateProjectData('projectId', saveResult.projectId)
         console.log('Project saved successfully with ID:', saveResult.projectId)
+        
+        // Show success message
+        alert(`✅ Projeto "${projectData.eventName}" criado com sucesso!\n\n` +
+              `Estrutura criada em: ${result.eventDir}\n` +
+              `Total de pastas: ${result.createdDirectories?.length || 0}`)
       } else {
         console.warn('Failed to save project:', saveResult.error)
+        setValidationErrors([`Erro ao salvar projeto: ${saveResult.error}`])
+        return
       }
       
       // Navigate to processing page
@@ -190,7 +184,7 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
     } finally {
       setIsProcessing(false)
     }
-  }, [projectData, onNavigation])
+  }, [projectData, onNavigation, updateProjectData])
 
   // Check if all required fields are completed
   const isProjectReady = projectData.destinationFolder && 
@@ -199,20 +193,19 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
                         projectData.photosFolder &&
                         projectData.participants?.length > 0
 
-  // Check if project can be saved (at least basic info)
-  const canSaveProject = projectData.eventName?.trim() && 
-                        projectData.destinationFolder && 
-                        projectData.participants?.length > 0
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Configurar Novo Projeto
+          {isProjectLoaded ? 'Projeto Carregado' : 'Configurar Novo Projeto'}
         </h1>
         <p className="text-gray-600">
-          Configure os parâmetros do seu evento para organizar as fotos automaticamente
+          {isProjectLoaded 
+            ? 'Projeto carregado com sucesso. Você pode modificar as configurações ou iniciar o processamento.'
+            : 'Configure os parâmetros do seu evento para organizar as fotos automaticamente'
+          }
         </p>
       </div>
 
@@ -353,35 +346,14 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
         </div>
       )}
 
-      {/* Save Message */}
-      {saveMessage && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">{saveMessage}</p>
-        </div>
-      )}
-
       {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        {/* Save Button */}
-        {canSaveProject && (
-          <button
-            onClick={handleSaveProject}
-            disabled={isSaving}
-            className="btn-secondary flex items-center justify-center space-x-2 flex-1"
-          >
-            <Save className="w-4 h-4" />
-            <span>
-              {isSaving ? 'Salvando...' : 'Salvar Projeto'}
-            </span>
-          </button>
-        )}
-
+      <div className="flex justify-center">
         {/* Start Project Button */}
         {isProjectReady && (
           <button
             onClick={handleStartProject}
             disabled={isProcessing}
-            className="btn-primary flex items-center justify-center space-x-2 flex-1"
+            className="btn-primary flex items-center justify-center space-x-2 px-8 py-3"
           >
             <Play className="w-4 h-4" />
             <span>
@@ -411,6 +383,34 @@ const Home = ({ projectData, setProjectData, onNavigation }) => {
               <strong>Fotos:</strong> {projectData.photosFolder?.split('\\').pop()}
             </div>
           </div>
+          
+          {/* Structure Preview */}
+          {projectData.creationResults && (
+            <div className="mt-4 pt-4 border-t border-green-200">
+              <h4 className="font-medium text-green-800 mb-2">Estrutura que será criada:</h4>
+              <div className="text-xs text-green-600 bg-green-100 p-3 rounded">
+                <div className="font-mono">
+                  {projectData.eventName}/<br />
+                  {projectData.creationResults.structure?.classes?.map(turma => (
+                    <div key={turma} className="ml-2">
+                      ├── {turma}/<br />
+                      {projectData.participants
+                        ?.filter(p => (p.turma || p.class) === turma)
+                        ?.slice(0, 3)
+                        ?.map(participant => (
+                          <div key={participant.name} className="ml-4">
+                            ├── {participant.name} - {participant.qrCode}/<br />
+                          </div>
+                        ))}
+                      {projectData.participants?.filter(p => (p.turma || p.class) === turma)?.length > 3 && (
+                        <div className="ml-4 text-green-500">... e mais {projectData.participants.filter(p => (p.turma || p.class) === turma).length - 3} participantes</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

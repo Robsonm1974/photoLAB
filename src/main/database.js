@@ -133,6 +133,16 @@ class DatabaseManager {
         )
       `
       
+      const createAppSettingsTable = `
+        CREATE TABLE IF NOT EXISTS app_settings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT UNIQUE NOT NULL,
+          value TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `
+      
       // Execute all table creation queries
       const queries = [
         createProjectsTable,
@@ -140,7 +150,8 @@ class DatabaseManager {
         createQRCacheTable,
         createCredentialsTable,
         createTemplatesTable,
-        createTemplateResultsTable
+        createTemplateResultsTable,
+        createAppSettingsTable
       ]
       
       let completed = 0
@@ -229,6 +240,16 @@ class DatabaseManager {
         
         const participantsJson = JSON.stringify(participants || [])
         const configJson = JSON.stringify(config || {})
+        
+        console.log('Saving project with data:', {
+          name,
+          eventName,
+          sourceFolder,
+          destinationFolder,
+          photosFolder,
+          participants: participants?.length || 0,
+          config: Object.keys(config || {})
+        })
         
         const query = `
           INSERT INTO projects (
@@ -321,6 +342,7 @@ class DatabaseManager {
    * Get project by ID with participants
    */
   async getProject(projectId) {
+    console.log('getProject called with ID:', projectId)
     return new Promise((resolve, reject) => {
       try {
         const query = `
@@ -339,11 +361,40 @@ class DatabaseManager {
             })
           } else {
             try {
+              console.log('Raw project data from database:', row)
+              console.log('Raw project data keys:', Object.keys(row || {}))
+              console.log('Raw project data values:', {
+                id: row?.id,
+                name: row?.name,
+                event_name: row?.event_name,
+                destination_folder: row?.destination_folder,
+                photos_folder: row?.photos_folder,
+                participants: row?.participants,
+                config: row?.config
+              })
+              
               const project = {
                 ...row,
                 participants: row.participants ? JSON.parse(row.participants) : [],
                 config: row.config ? JSON.parse(row.config) : {}
               }
+              
+              console.log('Config from database (raw):', row.config)
+              console.log('Config from database (parsed):', project.config)
+              console.log('Config type:', typeof project.config)
+              console.log('Config is empty object:', JSON.stringify(project.config) === '{}')
+              
+              console.log('Parsed project data:', project)
+              console.log('Parsed project data keys:', Object.keys(project || {}))
+              console.log('Parsed project data values:', {
+                id: project?.id,
+                name: project?.name,
+                event_name: project?.event_name,
+                destination_folder: project?.destination_folder,
+                photos_folder: project?.photos_folder,
+                participants: project?.participants?.length || 0,
+                config: Object.keys(project?.config || {})
+              })
               
               resolve({
                 success: true,
@@ -454,6 +505,27 @@ class DatabaseManager {
   }
 
   /**
+   * Clear all database data (for development/reset)
+   */
+  async clearAllData() {
+    try {
+      // Delete all data from all tables
+      await this.runQuery('DELETE FROM template_results')
+      await this.runQuery('DELETE FROM credentials')
+      await this.runQuery('DELETE FROM qr_cache')
+      await this.runQuery('DELETE FROM processing_results')
+      await this.runQuery('DELETE FROM templates')
+      await this.runQuery('DELETE FROM projects')
+      
+      console.log('All database data cleared successfully')
+      return { success: true }
+    } catch (error) {
+      console.error('Error clearing database:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  /**
    * Get app setting
    */
   async getSetting(key) {
@@ -487,10 +559,14 @@ class DatabaseManager {
    */
   async updateProjectConfig(projectId, config) {
     try {
+      console.log('updateProjectConfig called with:', { projectId, config })
+      
       // Get current project config
       const project = await this.getRow('SELECT config FROM projects WHERE id = ?', [projectId])
+      console.log('Current project config from DB:', project)
       
       if (!project) {
+        console.log('Project not found for ID:', projectId)
         return { success: false, error: 'Project not found' }
       }
 
@@ -499,6 +575,7 @@ class DatabaseManager {
       if (project.config) {
         try {
           existingConfig = JSON.parse(project.config)
+          console.log('Parsed existing config:', existingConfig)
         } catch (e) {
           console.warn('Failed to parse existing config, starting fresh')
         }
@@ -509,6 +586,7 @@ class DatabaseManager {
         ...existingConfig,
         ...config
       }
+      console.log('Merged config to save:', mergedConfig)
 
       // Update project with merged config
       await this.runQuery(

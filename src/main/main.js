@@ -1,15 +1,14 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs').promises
-const { spawn } = require('child_process')
 const DatabaseManager = require('./database')
 const QRCode = require('qrcode')
 
 /**
- * PhotoLab Main Process
+ * PhotoLab Main Process - MVP VERSION
  * 
  * Handles Electron app lifecycle and IPC communications.
- * Follows architecture patterns from project_rules.md
+ * Removed: QR code processing and photo grouping functionality
  */
 
 // Keep a global reference of the window object
@@ -33,7 +32,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false // Allow workers in development
     },
     icon: path.join(__dirname, '../assets/icon.png'),
     show: false,
@@ -49,7 +49,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../build/index.html'))
   }
 
-  // Show window when ready to prevent visual flash
+  // Show window when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
   })
@@ -61,25 +61,23 @@ function createWindow() {
 }
 
 /**
- * App event handlers
+ * Initialize database
  */
-app.whenReady().then(async () => {
-  console.log('App is ready, initializing database...')
-  
-  // Initialize database
-  databaseManager = new DatabaseManager()
-  const dbInit = await databaseManager.initialize()
-  
-  if (!dbInit.success) {
-    console.error('Failed to initialize database:', dbInit.error)
-    // Don't exit, continue without database for now
-  } else {
-    console.log('Database initialized successfully:', dbInit.dbPath)
+async function initializeDatabase() {
+  try {
+    databaseManager = new DatabaseManager()
+    await databaseManager.initialize()
+    console.log('Database initialized successfully')
+  } catch (error) {
+    console.error('Failed to initialize database:', error)
   }
+}
 
+// App event handlers
+app.whenReady().then(async () => {
+  await initializeDatabase()
   createWindow()
-
-  // On macOS, re-create window when dock icon is clicked
+  
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
@@ -87,308 +85,269 @@ app.whenReady().then(async () => {
   })
 })
 
-// Quit when all windows are closed
 app.on('window-all-closed', () => {
-  // On macOS, keep app running even when all windows are closed
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
 
-// Security: Prevent new window creation
-app.on('web-contents-created', (event, contents) => {
-  contents.on('new-window', (event, navigationUrl) => {
-    event.preventDefault()
-  })
-})
+// IPC Handlers - MVP VERSION (removed processing handlers)
 
-/**
- * IPC Handlers for File System Operations
- */
-
-// Handle folder selection
+// Folder and file selection
 ipcMain.handle('select-folder', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
-      title: 'Selecionar Pasta de Origem',
-      buttonLabel: 'Selecionar'
+      title: 'Selecionar Pasta'
     })
     
-    return result
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { success: true, filePaths: result.filePaths }
+    }
+    
+    return { success: false, error: 'No folder selected' }
   } catch (error) {
     console.error('Error selecting folder:', error)
-    throw error
+    return { success: false, error: error.message }
   }
 })
 
-// Handle file selection
 ipcMain.handle('select-file', async (event, filters = []) => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile'],
-      title: 'Selecionar Arquivo',
-      buttonLabel: 'Abrir',
-      filters: filters
+      filters: filters.length > 0 ? filters : [
+        { name: 'CSV Files', extensions: ['csv'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      title: 'Selecionar Arquivo'
     })
     
-    return result
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { success: true, filePaths: result.filePaths }
+    }
+    
+    return { success: false, error: 'No file selected' }
   } catch (error) {
     console.error('Error selecting file:', error)
-    throw error
+    return { success: false, error: error.message }
   }
 })
 
-// Validate folder and count JPG files
+// Folder validation
 ipcMain.handle('validate-folder', async (event, folderPath) => {
   try {
     const stats = await fs.stat(folderPath)
-    
     if (!stats.isDirectory()) {
-      return { 
-        valid: false, 
-        message: 'O caminho selecionado não é uma pasta' 
-      }
+      return { valid: false, message: 'Path is not a directory' }
     }
-
-    // Read folder contents
-    const files = await fs.readdir(folderPath)
     
-    // Filter JPG files
-    const jpgFiles = files.filter(file => 
-      /\.(jpg|jpeg)$/i.test(file)
-    )
-
-    if (jpgFiles.length === 0) {
-      return { 
-        valid: false, 
-        message: 'Nenhum arquivo JPG encontrado na pasta selecionada' 
-      }
-    }
-
-    return { 
-      valid: true, 
-      message: `Encontrados ${jpgFiles.length} arquivos JPG`,
-      fileCount: jpgFiles.length,
-      files: jpgFiles
+    // Check if folder is writable
+    try {
+      await fs.access(folderPath, fs.constants.W_OK)
+      return { valid: true, message: 'Folder validated successfully' }
+    } catch {
+      return { valid: false, message: 'Directory is not writable' }
     }
   } catch (error) {
-    return { 
-      valid: false, 
-      message: `Erro ao acessar pasta: ${error.message}` 
-    }
+    return { valid: false, message: 'Directory does not exist or is not accessible' }
   }
 })
 
-// Validate destination folder (without JPG validation) - NEW
 ipcMain.handle('validate-destination-folder', async (event, folderPath) => {
   try {
     const stats = await fs.stat(folderPath)
-    
     if (!stats.isDirectory()) {
-      return { 
-        valid: false, 
-        message: 'O caminho selecionado não é uma pasta' 
-      }
+      return { valid: false, message: 'Path is not a directory' }
     }
-
-    return { 
-      valid: true, 
-      message: 'Pasta de destino válida'
+    
+    // Check if folder is writable
+    try {
+      await fs.access(folderPath, fs.constants.W_OK)
+      return { valid: true, message: 'Destination folder validated successfully' }
+    } catch {
+      return { valid: false, message: 'Directory is not writable' }
     }
   } catch (error) {
-    return { 
-      valid: false, 
-      message: `Erro ao acessar pasta: ${error.message}` 
-    }
+    return { valid: false, message: 'Directory does not exist or is not accessible' }
   }
 })
 
-// Read and parse CSV file
+// CSV parsing
 ipcMain.handle('parse-csv', async (event, filePath) => {
   try {
-    // Read raw bytes to decide encoding (avoid mojibake like "JoÃ£o")
-    const buffer = await fs.readFile(filePath)
-
-    // Helper to detect common mojibake patterns when UTF-8 is misread
-    const looksMojibake = (text) => {
-      const suspicious = (text.match(/[ÃÂ][\x80-\xBF]/g) || []).length
-      return suspicious > 0
-    }
-
-    // Decode preferring UTF-8 (remove BOM), fallback to latin1 if mojibake
-    let csvData = buffer.toString('utf8')
-    if (csvData.charCodeAt(0) === 0xFEFF) {
-      csvData = csvData.slice(1)
-    }
-    if (looksMojibake(csvData)) {
-      csvData = buffer.toString('latin1')
+    const content = await fs.readFile(filePath, 'utf-8')
+    const lines = content.split('\n').filter(line => line.trim())
+    
+    if (lines.length < 2) {
+      return { success: false, error: 'CSV file must have at least a header and one data row' }
     }
     
-    console.log('CSV file read successfully:', filePath)
-    console.log('Raw CSV data length:', csvData.length)
-    console.log('First 200 chars:', csvData.substring(0, 200))
+    // Parse header
+    const header = lines[0].split(/[,;]/).map(h => h.trim())
     
-    if (!csvData || csvData.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Arquivo CSV está vazio ou não pôde ser lido'
-      }
-    }
+    // Validate header - more flexible matching
+    const requiredColumns = ['Nome', 'Turma', 'QR Code']
+    const missingColumns = []
     
-    // Normalize line endings and split
-    const normalizedData = csvData.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    const lines = normalizedData.split('\n').map(line => line.trim()).filter(line => line.length > 0)
-    
-    console.log('Total lines found:', lines.length)
-    console.log('First line:', lines[0])
-    
-    if (lines.length === 0) {
-      return {
-        success: false,
-        error: 'Nenhuma linha de dados encontrada no arquivo CSV'
-      }
-    }
-    
-    // Detect delimiter (comma or semicolon)
-    const firstLine = lines[0]
-    const commaCount = (firstLine.match(/,/g) || []).length
-    const semicolonCount = (firstLine.match(/;/g) || []).length
-    const delimiter = semicolonCount > commaCount ? ';' : ','
-    
-    console.log('Detected delimiter:', delimiter)
-    
-    // Parse headers
-    const headers = firstLine.split(delimiter).map(h => h.trim().replace(/['"]/g, ''))
-    console.log('Headers found:', headers)
-    
-    // Check if we have the required headers (flexible matching)
-    const requiredPatterns = [
-      ['name', 'nome'], 
-      ['turma', 'class', 'classe'], 
-      ['qr', 'code', 'qrcode']
-    ]
-    
-    const missingHeaders = []
-    requiredPatterns.forEach((patterns, index) => {
-      const found = headers.some(h => 
-        patterns.some(pattern => h.toLowerCase().includes(pattern.toLowerCase()))
-      )
-      if (!found) {
-        missingHeaders.push(patterns[0])
-      }
-    })
-    
-    if (missingHeaders.length > 0) {
-      console.log('Required headers missing. Found:', headers)
-      console.log('Missing patterns:', missingHeaders)
-      return {
-        success: false,
-        error: `Colunas obrigatórias não encontradas. Esperado: name/nome, turma, qr/code. Encontrado: ${headers.join(', ')}`
-      }
-    }
-    
-    // Map headers to standard field names
-    const fieldMapping = {}
-    headers.forEach(header => {
-      const lowerHeader = header.toLowerCase()
-      if (lowerHeader.includes('nome') || lowerHeader.includes('name')) {
-        fieldMapping.name = header
-      } else if (lowerHeader.includes('turma') || lowerHeader.includes('class')) {
-        fieldMapping.turma = header
-      } else if (lowerHeader.includes('qr') || lowerHeader.includes('code')) {
-        fieldMapping.qrCode = header
-      }
-    })
-    
-    console.log('Field mapping:', fieldMapping)
-    
-    // Parse data rows
-    const data = []
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-      if (!line) continue
-      
-      const values = line.split(delimiter).map(v => v.trim().replace(/['"]/g, ''))
-      const rawRow = {}
-      const standardRow = {}
-      
-      // Create both raw and standardized row
-      headers.forEach((header, index) => {
-        rawRow[header] = values[index] || ''
+    for (const requiredCol of requiredColumns) {
+      const found = header.some(h => {
+        const headerLower = h.toLowerCase().trim()
+        const requiredLower = requiredCol.toLowerCase().trim()
+        
+        // Exact match or contains match
+        return headerLower === requiredLower || 
+               headerLower.includes(requiredLower) ||
+               requiredLower.includes(headerLower)
       })
       
-      // Map to standard field names
-      standardRow.name = rawRow[fieldMapping.name] || ''
-      standardRow.turma = rawRow[fieldMapping.turma] || ''
-      standardRow.qrCode = rawRow[fieldMapping.qrCode] || ''
-      
-      // Only add rows that have at least a name
-      if (standardRow.name && standardRow.name.trim()) {
-        data.push(standardRow)
+      if (!found) {
+        missingColumns.push(requiredCol)
       }
     }
-
-    console.log('Parsed data rows:', data.length)
-    console.log('First data row:', data[0])
-
-    return {
-      success: true,
-      data: data,
-      headers: headers,
-      delimiter: delimiter,
-      totalLines: lines.length
+    
+    if (missingColumns.length > 0) {
+      return { 
+        success: false, 
+        error: `Colunas obrigatórias ausentes: ${missingColumns.join(', ')}. Encontradas: ${header.join(', ')}` 
+      }
     }
-  } catch (error) {
-    console.error('Error parsing CSV:', error)
-    return {
-      success: false,
-      error: `Erro ao processar arquivo CSV: ${error.message}`
-    }
-  }
-})
-
-// Create directory structure
-ipcMain.handle('create-directories', async (event, basePath, eventName, participants) => {
-  const results = {
-    created: [],
-    errors: []
-  }
-
-  try {
-    for (const participant of participants) {
-      const sanitizedName = sanitizeFileName(participant.name)
-      const folderName = `${sanitizedName} - ${participant.qrCode}`
-      const fullPath = path.join(
-        basePath,
-        sanitizeFileName(eventName),
-        sanitizeFileName(participant.turma),
-        folderName
-      )
-
-      try {
-        await fs.mkdir(fullPath, { recursive: true })
-        results.created.push(fullPath)
-      } catch (error) {
-        results.errors.push({
-          participant: participant.name,
-          error: error.message
+    
+    // Parse data rows - map columns by header names
+    const participants = []
+    
+    // Find column indices
+    const nameIndex = header.findIndex(h => 
+      h.toLowerCase().includes('nome') || h.toLowerCase().includes('name')
+    )
+    const turmaIndex = header.findIndex(h => 
+      h.toLowerCase().includes('turma') || h.toLowerCase().includes('class')
+    )
+    const qrIndex = header.findIndex(h => 
+      h.toLowerCase().includes('qr') || h.toLowerCase().includes('code')
+    )
+    
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(/[,;]/).map(v => v.trim())
+      
+      if (values.length >= 3 && 
+          nameIndex >= 0 && values[nameIndex] && 
+          turmaIndex >= 0 && values[turmaIndex] && 
+          qrIndex >= 0 && values[qrIndex]) {
+        participants.push({
+          name: values[nameIndex],
+          turma: values[turmaIndex],
+          qrCode: values[qrIndex]
         })
       }
     }
-
-    return { success: true, results }
+    
+    if (participants.length === 0) {
+      return { success: false, error: 'No valid participants found in CSV' }
+    }
+    
+    return { 
+      success: true, 
+      data: participants,
+      total: participants.length,
+      header 
+    }
   } catch (error) {
-    console.error('Directory creation error:', error)
+    console.error('Error parsing CSV:', error)
     return { success: false, error: error.message }
   }
 })
 
 /**
- * Utility Functions
+ * Sanitize folder name to be safe for filesystem
+ * Preserves Portuguese accents and special characters
  */
+function sanitizeFolderName(name) {
+  return name
+    .replace(/[<>:"/\\|?*]/g, '') // Remove only invalid filesystem characters
+    .replace(/\s+/g, ' ')         // Normalize spaces
+    .trim()                       // Remove leading/trailing spaces
+}
 
-// Open folder in file explorer
+// Directory creation with proper structure
+ipcMain.handle('create-directories', async (event, basePath, eventName, participants) => {
+  try {
+    // Sanitize event name
+    const sanitizedEventName = sanitizeFolderName(eventName)
+    const eventDir = path.join(basePath, sanitizedEventName)
+    
+    // Create main event directory
+    await fs.mkdir(eventDir, { recursive: true })
+    
+    // Group participants by turma (class)
+    const participantsByClass = {}
+    for (const participant of participants) {
+      const turma = participant.turma || participant.class || 'Sem Turma'
+      if (!participantsByClass[turma]) {
+        participantsByClass[turma] = []
+      }
+      participantsByClass[turma].push(participant)
+    }
+    
+    const createdDirectories = []
+    const errors = []
+    
+    // Create directories for each class
+    for (const [turma, classParticipants] of Object.entries(participantsByClass)) {
+      try {
+        // Sanitize turma name
+        const sanitizedTurma = sanitizeFolderName(turma)
+        const turmaDir = path.join(eventDir, sanitizedTurma)
+        
+        // Create turma directory
+        await fs.mkdir(turmaDir, { recursive: true })
+        createdDirectories.push(turmaDir)
+        
+        // Create participant directories within each turma
+        for (const participant of classParticipants) {
+          try {
+            // Sanitize participant name and create folder name
+            const sanitizedName = sanitizeFolderName(participant.name)
+            const participantFolderName = `${sanitizedName} - ${participant.qrCode}`
+            const participantDir = path.join(turmaDir, participantFolderName)
+            
+            // Create participant directory
+            await fs.mkdir(participantDir, { recursive: true })
+            createdDirectories.push(participantDir)
+            
+            console.log(`Created directory: ${participantDir}`)
+          } catch (participantError) {
+            const errorMsg = `Error creating directory for ${participant.name}: ${participantError.message}`
+            errors.push(errorMsg)
+            console.error(errorMsg)
+          }
+        }
+      } catch (turmaError) {
+        const errorMsg = `Error creating turma directory for ${turma}: ${turmaError.message}`
+        errors.push(errorMsg)
+        console.error(errorMsg)
+      }
+    }
+    
+    return { 
+      success: true, 
+      eventDir,
+      createdDirectories,
+      errors,
+      structure: {
+        eventName: sanitizedEventName,
+        classes: Object.keys(participantsByClass),
+        totalParticipants: participants.length,
+        totalDirectories: createdDirectories.length
+      }
+    }
+  } catch (error) {
+    console.error('Error creating directory structure:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Utility handlers
 ipcMain.handle('open-folder', async (event, folderPath) => {
   try {
     await shell.openPath(folderPath)
@@ -399,298 +358,257 @@ ipcMain.handle('open-folder', async (event, folderPath) => {
   }
 })
 
-// Process photos with QR detection and grouping (Phase 2)
-// Generate thumbnail for photo
 ipcMain.handle('generate-thumbnail', async (event, photoPath) => {
   try {
-    console.log('Generating thumbnail for:', photoPath)
-    
-    // Check if file exists using async method
-    try {
-      await fs.access(photoPath)
-    } catch (accessError) {
-      console.log('File not found:', photoPath)
-      return { success: false, error: 'File not found' }
-    }
-    
-    // Read the image file and convert to base64
-    const imageBuffer = await fs.readFile(photoPath)
-    const base64 = imageBuffer.toString('base64')
-    const mimeType = photoPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
-    
-    console.log('Thumbnail generated successfully for:', photoPath)
-    return {
-      success: true,
-      dataUrl: `data:${mimeType};base64,${base64}`
-    }
+    // For MVP, just return the original path
+    // In a full implementation, this would generate actual thumbnails
+    return { success: true, thumbnailPath: photoPath }
   } catch (error) {
     console.error('Error generating thumbnail:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Finalize processing: run only the copy stage with current grouping results
-// Save only ungrouped photos to destination (without reprocessing)
-ipcMain.handle('save-ungrouped-photos', async (event, { destinationFolder, ungroupedPhotos, eventName }) => {
-  try {
-    if (!destinationFolder) return { success: false, error: 'Destination folder missing' }
-    const ungroupedFolder = path.join(destinationFolder, eventName || 'Evento', 'Não Agrupadas')
-    await fs.mkdir(ungroupedFolder, { recursive: true })
-
-    const moved = []
-    const errors = []
-    for (const photo of ungroupedPhotos || []) {
-      try {
-        const sourcePath = typeof photo === 'string' ? photo : (photo.file_path || photo.path)
-        if (!sourcePath) continue
-        const fileName = path.basename(sourcePath)
-        const destPath = path.join(ungroupedFolder, fileName)
-        await fs.copyFile(sourcePath, destPath)
-        moved.push({ from: sourcePath, to: destPath })
-      } catch (e) {
-        errors.push({ photo, error: e.message })
-      }
-    }
-
-    return { success: errors.length === 0, moved, errors }
-  } catch (error) {
-    return { success: false, error: error.message }
-  }
-})
-
-// Função utilitária para renderizar HTML offscreen e salvar como PNG
-async function renderCredentialToPng(html, outputPath) {
-  const { BrowserWindow } = require('electron')
-  
-  const width = 283
-  const height = 425
-  
-  const win = new BrowserWindow({
-    show: false,
-    width: width,
-    height: height,
-    useContentSize: true,
-    backgroundColor: '#ffffffff',
-    webPreferences: { 
-      offscreen: true,
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  })
-  
-  // Forçar zoom = 1
-  win.webContents.setVisualZoomLevelLimits(1, 1)
-  win.webContents.setZoomFactor(1)
-  
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    
-    // Esperar fontes carregarem em vez de setTimeout
-    await win.webContents.executeJavaScript('document.fonts ? document.fonts.ready : Promise.resolve()')
-    
-    // Capturar a página com dimensões específicas
-    const image = await win.webContents.capturePage({
-      x: 0,
-      y: 0,
-      width: width,
-      height: height
-    })
-    const buffer = image.toPNG()
-    
-    await fs.writeFile(outputPath, buffer)
-    return outputPath
-  } finally {
-    await win.destroy()
-  }
+// Credentials generation
+// Helper function to convert local path to file:// URL
+const toFileURL = (filePath) => {
+  if (!filePath) return ''
+  // Convert Windows paths to file:// URLs
+  const normalizedPath = filePath.replace(/\\/g, '/')
+  return `file:///${normalizedPath}`
 }
 
-// Generate credential HTML with CSS (10x15cm format)
-async function generateCredentialHTML({ participant, eventName, qrCodeDataURL, config }) {
-  // Sistema de coordenadas em pixels fixos
-  const baseWidth = 283
-  const baseHeight = 425
-  
-  const backgroundStyle = config.backgroundImage 
-    ? `background-image: url('${config.backgroundImage}'); background-size: cover; background-position: center;`
-    : 'background-color: #FFFFFF;'
-  
-  // Valores em pixels (iguais para width e height do QR)
-  const qrSizePx = config.qrCode?.size || 144
-  const qrLeftPx = config.qrCode?.x || 93
-  const qrTopPx = config.qrCode?.y || 105
-  
-  const nameLeftPx = config.name?.x || 96
-  const nameTopPx = config.name?.y || 288
-  const nameFontPt = config.name?.fontSize || 12
-  
-  const turmaLeftPx = config.turma?.x || 12
-  const turmaTopPx = config.turma?.y || 84
-  const turmaFontPt = config.turma?.fontSize || 10
-  
-  const urlLeftPx = config.photographerUrl?.x || 12
-  const urlTopPx = config.photographerUrl?.y || 96
-  const urlFontPt = config.photographerUrl?.fontSize || 8
-  
-  const eventLeftPx = config.eventName?.x || 12
-  const eventTopPx = config.eventName?.y || 120
-  const eventFontPt = config.eventName?.fontSize || 9
-  
-  return `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Credencial - ${participant.name}</title>
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-        
-        body {
-            margin: 0;
-            padding: 0;
-            width: 283px;
-            height: 425px;
-            ${backgroundStyle}
-            font-family: Arial, sans-serif;
-            position: relative;
-            overflow: hidden;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
-        
-        .credential-container {
-            width: 100%;
-            height: 100%;
-            position: relative;
-        }
-        
-        .qr-code {
-            position: absolute;
-            width: ${qrSizePx}px;
-            height: ${qrSizePx}px;
-            left: ${qrLeftPx}px;
-            top: ${qrTopPx}px;
-            aspect-ratio: 1 / 1;
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
-        }
-        
-        .participant-name {
-            position: absolute;
-            left: ${nameLeftPx}px;
-            top: ${nameTopPx}px;
-            color: ${config.name?.color || '#000000'};
-            font-size: ${nameFontPt}pt;
-            font-family: ${config.name?.fontFamily || 'Arial'};
-            font-weight: bold;
-        }
-        
-        .participant-turma {
-            position: absolute;
-            left: ${turmaLeftPx}px;
-            top: ${turmaTopPx}px;
-            color: ${config.turma?.color || '#666666'};
-            font-size: ${turmaFontPt}pt;
-            font-family: ${config.turma?.fontFamily || 'Arial'};
-        }
-        
-        .photographer-url {
-            position: absolute;
-            left: ${urlLeftPx}px;
-            top: ${urlTopPx}px;
-            color: ${config.photographerUrl?.color || '#0066CC'};
-            font-size: ${urlFontPt}pt;
-            font-family: ${config.photographerUrl?.fontFamily || 'Arial'};
-        }
-        
-        .event-name {
-            position: absolute;
-            left: ${eventLeftPx}px;
-            top: ${eventTopPx}px;
-            color: ${config.eventName?.color || '#333333'};
-            font-size: ${eventFontPt}pt;
-            font-family: ${config.eventName?.fontFamily || 'Arial'};
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="credential-container">
-        ${config.qrCode?.enabled ? `<img src="${qrCodeDataURL}" class="qr-code" alt="QR Code ${participant.qrCode}" />` : ''}
-        ${config.name?.enabled ? `<div class="participant-name">${participant.name}</div>` : ''}
-        ${config.turma?.enabled ? `<div class="participant-turma">${participant.turma}</div>` : ''}
-        ${config.photographerUrl?.enabled ? `<div class="photographer-url">${config.photographerUrl.text || 'https://photomanager.com'}</div>` : ''}
-        ${config.eventName?.enabled ? `<div class="event-name">${eventName}</div>` : ''}
-    </div>
-</body>
-</html>`
-}
-
-// Generate credentials for participants
 ipcMain.handle('generate-credentials', async (event, { participants, eventName, config, destinationFolder }) => {
   try {
-    console.log('Generating credentials for', participants.length, 'participants')
+    const QRCode = require('qrcode')
+    const path = require('path')
+    const fs = require('fs').promises
+    const { BrowserWindow } = require('electron')
+    const sizeOf = require('image-size')
     
-    // Use destination folder if provided, otherwise fallback to current directory
-    const baseFolder = destinationFolder || process.cwd()
-    const outputDir = path.join(baseFolder, 'credenciais_geradas')
-    await fs.mkdir(outputDir, { recursive: true })
+    // Create Credentials folder inside the project folder
+    const credentialsFolder = path.join(destinationFolder, 'Credenciais')
+    console.log('Creating credentials folder:', credentialsFolder)
+    await fs.mkdir(credentialsFolder, { recursive: true })
+    console.log('Credentials folder created successfully')
     
-    const generatedCredentials = []
+    const credentials = []
+    const generatedFiles = []
     
-    for (const participant of participants) {
+    // Get photographer URL from config
+    const photographerUrl = config.photographerUrl?.text || 'https://www.photo.app/fotografo/nomedotenant'
+    
+    // Detect background image dimensions and calculate scale factors
+    // 10cm x 15cm at 72 DPI = 283x425 pixels (preview)
+    // 10cm x 15cm at 72 DPI = 850x1276 pixels (final render - 3x scale)
+    let backgroundWidth = 850   // 283 * 3 = 850px (final render)
+    let backgroundHeight = 1276 // 425 * 3 = 1276px (final render)
+    let scaleX = 3  // 3x scale factor
+    let scaleY = 3  // 3x scale factor
+    
+    // Check if we have a background image (either path or base64)
+    if (config.backgroundImagePath || config.backgroundImageBase64) {
       try {
-        // Generate QR code as data URL (ajustado para 72 DPI)
-        const qrCodeSize = config.qrCode?.size || 144 // 600 * (283/1181) ≈ 144
-        const qrCodeDataURL = await QRCode.toDataURL(participant.qrCode, {
-          width: qrCodeSize,
-          margin: 1,
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          }
-        })
-        
-        // Generate credential HTML
-        const credentialHTML = await generateCredentialHTML({
-          participant,
-          eventName,
-          qrCodeDataURL,
-          config
-        })
-        
-        // Nome do arquivo PNG
-        const safeName = participant.name.replace(/[^a-zA-Z0-9]/g, '_')
-        const fileName = `credential_${safeName}_${participant.qrCode}.png`
-        const filePath = path.join(outputDir, fileName)
-        
-        // Renderizar e salvar como PNG
-        await renderCredentialToPng(credentialHTML, filePath)
-        
-        generatedCredentials.push({
-          id: participant.qrCode,
-          name: participant.name,
-          turma: participant.turma,
-          qrCode: participant.qrCode,
-          eventName: eventName,
-          filePath: filePath,
-          generatedAt: new Date().toISOString(),
-          config: config
-        })
-        
-        console.log(`Credential saved: ${filePath}`)
+        if (config.backgroundImageBase64) {
+          // Use base64 image for dimensions
+          console.log('Using base64 image for background')
+          // For base64, we'll use 3x scale dimensions (850x1276px)
+          backgroundWidth = 850   // 283 * 3 = 850px (final render)
+          backgroundHeight = 1276 // 425 * 3 = 1276px (final render)
+          scaleX = 3  // 3x scale factor
+          scaleY = 3  // 3x scale factor
+        } else {
+          console.log('Detecting background dimensions for:', config.backgroundImagePath)
+          const dimensions = sizeOf(config.backgroundImagePath)
+          backgroundWidth = dimensions.width
+          backgroundHeight = dimensions.height
+          scaleX = backgroundWidth / 283  // Scale from preview to actual
+          scaleY = backgroundHeight / 425 // Scale from preview to actual
+          console.log(`Background dimensions: ${backgroundWidth}x${backgroundHeight}`)
+          console.log(`Scale factors: ${scaleX.toFixed(2)}x, ${scaleY.toFixed(2)}y`)
+        }
       } catch (error) {
-        console.error(`Error generating credential for ${participant.name}:`, error)
+        console.warn('Could not detect background dimensions, using defaults:', error.message)
+        console.log('Background path:', config.backgroundImagePath)
+        console.log('Using default dimensions')
+        backgroundWidth = 850   // 283 * 3 = 850px (final render)
+        backgroundHeight = 1276 // 425 * 3 = 1276px (final render)
+        scaleX = 3  // 3x scale factor
+        scaleY = 3  // 3x scale factor
       }
+    } else {
+      console.log('No background image provided')
     }
     
-    return {
-      success: true,
-      credentials: generatedCredentials,
-      message: `${generatedCredentials.length} credenciais salvas como imagens`,
-      outputDirectory: outputDir
+    for (const participant of participants) {
+      console.log(`Generating credential for: ${participant.name}`)
+      console.log('Config received:', {
+        backgroundImagePath: config.backgroundImagePath,
+        backgroundImageBase64: config.backgroundImageBase64 ? 'Present' : 'Not present',
+        qrCode: config.qrCode,
+        name: config.name,
+        turma: config.turma,
+        photographerUrl: config.photographerUrl,
+        qrCodeText: config.qrCodeText
+      })
+      console.log(`Using dimensions: ${backgroundWidth}x${backgroundHeight}`)
+      console.log(`Scale factors: ${scaleX}x, ${scaleY}y`)
+      
+      // Build complete QR Code URL: photographerUrl/participante/QRCode
+      const qrCodeUrl = `${photographerUrl}/participante/${participant.qrCode}`
+      
+      // Generate QR Code as data URL
+      const qrCodeDataUrl = await QRCode.toDataURL(qrCodeUrl, {
+        width: config.qrCode?.size || 144,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      })
+      
+      // Create HTML for credential with real dimensions and scaled positions
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              margin: 0;
+              padding: 0;
+              width: ${backgroundWidth}px;
+              height: ${backgroundHeight}px;
+              background: white;
+              font-family: Arial, sans-serif;
+              position: relative;
+              overflow: hidden;
+            }
+            .credential {
+              width: ${backgroundWidth}px;
+              height: ${backgroundHeight}px;
+              position: relative;
+              background: white;
+              ${config.backgroundImageBase64 ? `background-image: url('${config.backgroundImageBase64}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : config.backgroundImagePath ? `background-image: url('file://${config.backgroundImagePath.replace(/\\/g, '/')}'); background-size: cover; background-position: center; background-repeat: no-repeat;` : ''}
+            }
+            .qr-code {
+              position: absolute;
+              left: ${(config.qrCode?.x || 93) * scaleX}px;
+              top: ${(config.qrCode?.y || 105) * scaleY}px;
+              width: ${(config.qrCode?.size || 144) * scaleX}px;
+              height: ${(config.qrCode?.size || 144) * scaleY}px;
+            }
+            .name {
+              position: absolute;
+              left: ${(config.name?.x || 88) * scaleX}px;
+              top: ${(config.name?.y || 288) * scaleY}px;
+              font-size: ${Math.round((config.name?.fontSize || 12) * scaleY)}px;
+              font-family: ${config.name?.fontFamily || 'Arial'};
+              color: ${config.name?.color || '#000000'};
+              font-weight: bold;
+            }
+            .turma {
+              position: absolute;
+              left: ${(config.turma?.x || 129) * scaleX}px;
+              top: ${(config.turma?.y || 311) * scaleY}px;
+              font-size: ${Math.round((config.turma?.fontSize || 12) * scaleY)}px;
+              font-family: ${config.turma?.fontFamily || 'Arial'};
+              color: ${config.turma?.color || '#666666'};
+            }
+            .photographer-url {
+              position: absolute;
+              left: ${(config.photographerUrl?.x || 104) * scaleX}px;
+              top: ${(config.photographerUrl?.y || 342) * scaleY}px;
+              font-size: ${Math.round((config.photographerUrl?.fontSize || 11) * scaleY)}px;
+              font-family: ${config.photographerUrl?.fontFamily || 'Arial'};
+              color: ${config.photographerUrl?.color || '#0066CC'};
+            }
+            .qr-code-text {
+              position: absolute;
+              left: ${(config.qrCodeText?.x || 104) * scaleX}px;
+              top: ${(config.qrCodeText?.y || 370) * scaleY}px;
+              font-size: ${Math.round((config.qrCodeText?.fontSize || 11) * scaleY)}px;
+              font-family: ${config.qrCodeText?.fontFamily || 'Arial'};
+              color: ${config.qrCodeText?.color || '#000000'};
+            }
+          </style>
+        </head>
+        <body>
+          <div class="credential">
+            <img src="${qrCodeDataUrl}" class="qr-code" alt="QR Code">
+            <div class="name">${participant.name || ''}</div>
+            <div class="turma">${participant.class || participant.turma || ''}</div>
+            <div class="photographer-url">${photographerUrl}</div>
+            <div class="qr-code-text">${participant.qrCode || ''}</div>
+          </div>
+        </body>
+        </html>
+      `
+      
+      // Create temporary HTML file
+      const tempHtmlPath = path.join(credentialsFolder, `temp_${participant.qrCode}.html`)
+      await fs.writeFile(tempHtmlPath, htmlContent, 'utf8')
+      
+      // Create hidden browser window for rendering with real dimensions
+      const renderWindow = new BrowserWindow({
+        width: backgroundWidth,
+        height: backgroundHeight,
+        show: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          webSecurity: false
+        }
+      })
+      
+      // Load HTML and capture screenshot
+      await renderWindow.loadFile(tempHtmlPath)
+      renderWindow.setContentSize(backgroundWidth, backgroundHeight)
+     
+      
+      // Wait for content to load
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Capture screenshot
+      const screenshot = await renderWindow.capturePage()
+      
+      // Save as PNG - format: "nome do aluno_QR1234567.png"
+      const sanitizedName = participant.name.replace(/[<>:"/\\|?*]/g, '') // Remove only invalid filename chars
+      const fileName = `${sanitizedName}_${participant.qrCode}.png`
+      const filePath = path.join(credentialsFolder, fileName)
+      
+      await fs.writeFile(filePath, screenshot.toPNG())
+      
+      // Clean up
+      renderWindow.close()
+      await fs.unlink(tempHtmlPath)
+      
+      console.log(`Credential saved: ${filePath}`)
+      generatedFiles.push(filePath)
+      
+      // Create credential data
+      const credential = {
+        name: participant.name,
+        class: participant.class,
+        qrCode: participant.qrCode,
+        qrCodeUrl: qrCodeUrl,
+        qrCodeDataUrl: qrCodeDataUrl,
+        eventName: eventName,
+        filePath: filePath,
+        generatedAt: new Date().toISOString()
+      }
+      
+      credentials.push(credential)
+    }
+    
+    console.log(`Generated ${generatedFiles.length} credential files`)
+    
+    return { 
+      success: true, 
+      credentials,
+      outputDirectory: credentialsFolder,
+      generatedFiles: generatedFiles,
+      message: `${credentials.length} credenciais geradas com sucesso!`
     }
   } catch (error) {
     console.error('Error generating credentials:', error)
@@ -698,755 +616,211 @@ ipcMain.handle('generate-credentials', async (event, { participants, eventName, 
   }
 })
 
-// Generate HTML for printing all credentials
-function generateCredentialsPrintHTML(credentials, eventName) {
-  return `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Credenciais - ${eventName}</title>
-    <style>
-        @page { 
-            size: A4; 
-            margin: 5mm; 
-        }
-        
-        body { 
-            margin: 0; 
-            padding: 0; 
-            background: #fff; 
-        }
-        
-        .grid { 
-            display: grid; 
-            grid-template-columns: repeat(2, 1fr); 
-            gap: 5mm; 
-        }
-        
-        .cell { 
-            width: 100mm; 
-            height: 150mm; 
-            page-break-inside: avoid; 
-        }
-        
-        .cell img { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: cover; 
-            display: block; 
-        }
-    </style>
-</head>
-<body>
-    <div class="grid">
-        ${credentials.map(c => `
-            <div class="cell">
-                <img src="file://${c.filePath}" alt="${c.name}">
-            </div>`).join('')}
-    </div>
-    <script>window.onload=()=>setTimeout(()=>print(),800)</script>
-</body>
-</html>`
-}
-
-// Print credentials
 ipcMain.handle('print-credentials', async (event, credentials, eventName) => {
   try {
-    console.log('Printing', credentials.length, 'credentials')
-    
-    // Create HTML with the generated images
-    const htmlContent = generateCredentialsPrintHTML(credentials, eventName)
-    
-    // Create temporary HTML file
-    const tempDir = path.join(process.cwd(), 'temp')
-    await fs.mkdir(tempDir, { recursive: true })
-    
-    const tempHtmlPath = path.join(tempDir, `credentials_print_${Date.now()}.html`)
-    await fs.writeFile(tempHtmlPath, htmlContent, 'utf8')
-    
-    // Open in browser for printing
-    await shell.openPath(tempHtmlPath)
-    
-    // Clean up after delay
-    setTimeout(async () => {
-      try {
-        await fs.unlink(tempHtmlPath)
-      } catch (e) {
-        console.warn('Could not delete temp file:', e.message)
-      }
-    }, 10000)
-    
-    return {
-      success: true,
-      message: `Abrindo ${credentials.length} credenciais para impressão`
-    }
+    // For MVP, just return success
+    // In a full implementation, this would handle printing
+    return { success: true }
   } catch (error) {
     console.error('Error printing credentials:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Save credentials as images
 ipcMain.handle('save-credentials', async (event, credentials, eventName, destinationFolder) => {
   try {
-    console.log('Confirming', credentials.length, 'credentials are saved as PNG images')
+    const credentialsDir = path.join(destinationFolder, eventName, 'credentials')
+    await fs.mkdir(credentialsDir, { recursive: true })
     
-    // Use destination folder if provided
-    const baseFolder = destinationFolder || process.cwd()
-    const outputFolder = path.join(baseFolder, 'credenciais_geradas')
-    
-    // Verify that the PNG files exist
-    const savedFiles = []
+    // Save individual credential files
     for (const credential of credentials) {
-      if (credential.filePath) {
-        try {
-          await fs.access(credential.filePath)
-          savedFiles.push(credential.filePath)
-        } catch (e) {
-          console.warn(`PNG file not found: ${credential.filePath}`)
-        }
-      }
+      const filename = `credential_${credential.name.replace(/[^a-zA-Z0-9]/g, '_')}_${credential.qrCode}.html`
+      const filePath = path.join(credentialsDir, filename)
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Credencial - ${credential.name}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .credential { border: 2px solid #333; padding: 20px; text-align: center; }
+            .name { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+            .class { font-size: 18px; color: #666; margin-bottom: 10px; }
+            .qr { margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="credential">
+            <div class="name">${credential.name}</div>
+            <div class="class">${credential.class}</div>
+            <div class="qr">QR Code: ${credential.qrCode}</div>
+            <div>Evento: ${eventName}</div>
+          </div>
+        </body>
+        </html>
+      `
+      
+      await fs.writeFile(filePath, htmlContent, 'utf-8')
     }
     
-    return {
-      success: true,
-      filePath: outputFolder,
-      savedFiles: savedFiles,
-      message: `${savedFiles.length} credenciais PNG confirmadas em: ${outputFolder}`
-    }
+    return { success: true, credentialsDir }
   } catch (error) {
-    console.error('Error confirming credentials:', error)
+    console.error('Error saving credentials:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Handle manual photo assignment
-ipcMain.handle('assign-photos-to-participant', async (event, { photos, participant, destinationFolder }) => {
-  try {
-    const participantFolder = path.join(destinationFolder, participant)
-    
-    // Ensure participant folder exists
-    await fs.mkdir(participantFolder, { recursive: true })
-    
-    const results = {
-      success: true,
-      moved: [],
-      errors: []
-    }
-    
-    for (const photo of photos) {
-      try {
-        // Handle both string paths and photo objects
-        const photoPath = typeof photo === 'string' ? photo : (photo.path || photo.file_path)
-        if (!photoPath) {
-          console.error('Invalid photo path:', photo)
-          continue
-        }
-        
-        const fileName = path.basename(photoPath)
-        const destPath = path.join(participantFolder, fileName)
-        
-        // Copy file to participant folder
-        await fs.copyFile(photoPath, destPath)
-        results.moved.push({ from: photoPath, to: destPath })
-        
-        console.log(`Moved photo ${fileName} to ${participant} folder`)
-      } catch (error) {
-        const photoPath = typeof photo === 'string' ? photo : (photo.path || photo.file_path || 'unknown')
-        console.error(`Error moving photo ${photoPath}:`, error)
-        results.errors.push({ photo: photoPath, error: error.message })
-      }
-    }
-    
-    results.success = results.errors.length === 0
-    return results
-    
-  } catch (error) {
-    console.error('Error in assign-photos-to-participant:', error)
-    return {
-      success: false,
-      error: error.message
-    }
-  }
-})
-
-ipcMain.handle('process-photos', async (event, config) => {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log('Starting photo processing with config:', config)
-      
-      // Create temporary config file
-      const tempConfigPath = path.join(__dirname, '..', 'python', 'temp_config.json')
-      
-      // Write config to temp file
-      fs.writeFile(tempConfigPath, JSON.stringify(config, null, 2))
-        .then(() => {
-          // Get Python script path
-          const pythonScriptPath = path.join(__dirname, '..', 'python', 'main.py')
-          
-          // Spawn Python process
-          const pythonProcess = spawn('python', [pythonScriptPath, tempConfigPath], {
-            cwd: path.join(__dirname, '..', 'python'),
-            stdio: ['pipe', 'pipe', 'pipe']
-          })
-          
-          let outputData = ''
-          let errorData = ''
-          
-          // Collect stdout
-          pythonProcess.stdout.on('data', (data) => {
-            const output = data.toString()
-            outputData += output
-            
-            // Try to parse progress updates (lines that start with specific markers)
-            const lines = output.split('\n')
-            for (const line of lines) {
-              if (line.includes('[QR_DETECTION]') || line.includes('[GROUPING]')) {
-                // Send progress update to renderer
-                event.sender.send('processing-progress', {
-                  stage: line.includes('[QR_DETECTION]') ? 'qr_detection' : 'grouping',
-                  message: line
-                })
-              }
-            }
-          })
-          
-          // Collect stderr
-          pythonProcess.stderr.on('data', (data) => {
-            const output = data.toString()
-            errorData += output
-            console.error('Python stderr:', output)
-            
-            // Send progress updates based on stderr logs
-            if (output.includes('Step 1:') || output.includes('Detecting QR codes')) {
-              event.sender.send('processing-progress', {
-                stage: 'qr_detection',
-                message: 'Detectando QR codes...',
-                percentage: 10
-              })
-            } else if (output.includes('Step 2:') || output.includes('Grouping photos')) {
-              event.sender.send('processing-progress', {
-                stage: 'grouping',
-                message: 'Agrupando fotos...',
-                percentage: 50
-              })
-            } else if (output.includes('Step 3:') || output.includes('Copying photos')) {
-              event.sender.send('processing-progress', {
-                stage: 'copying',
-                message: 'Copiando fotos...',
-                percentage: 75
-              })
-            } else if (output.includes('QR detected')) {
-              event.sender.send('processing-progress', {
-                stage: 'qr_detection',
-                message: output.trim(),
-                percentage: 25
-              })
-            } else if (output.includes('Copied') && output.includes('folder')) {
-              event.sender.send('processing-progress', {
-                stage: 'copying',
-                message: output.trim(),
-                percentage: 85
-              })
-            }
-          })
-          
-          // Handle process completion
-          pythonProcess.on('close', async (code) => {
-            try {
-              // Clean up temp config file
-              await fs.unlink(tempConfigPath).catch(() => {}) // Ignore errors
-              
-              if (code === 0) {
-                // Success - extract JSON from output
-                try {
-                  const jsonMatch = outputData.match(/==JSON_START==([\s\S]*?)==JSON_END==/);
-                  if (jsonMatch && jsonMatch[1]) {
-                    const jsonData = jsonMatch[1].trim();
-                    const result = JSON.parse(jsonData);
-                    console.log('Photo processing completed successfully');
-                    resolve(result);
-                  } else {
-                    console.error('No JSON markers found in output');
-                    console.log('Raw output:', outputData);
-                    resolve({
-                      success: false,
-                      error: 'No valid JSON result found in output',
-                      raw_output: outputData
-                    });
-                  }
-                } catch (parseError) {
-                  console.error('Error parsing Python JSON:', parseError);
-                  console.log('Raw output:', outputData);
-                  resolve({
-                    success: false,
-                    error: 'Failed to parse processing results',
-                    raw_output: outputData,
-                    parse_error: parseError.message
-                  });
-                }
-              } else {
-                // Error
-                console.error('Python process failed with code:', code)
-                console.error('Error output:', errorData)
-                resolve({
-                  success: false,
-                  error: `Processing failed with exit code ${code}`,
-                  details: errorData,
-                  raw_output: outputData
-                })
-              }
-            } catch (cleanupError) {
-              console.error('Cleanup error:', cleanupError)
-              resolve({
-                success: false,
-                error: 'Process completed but cleanup failed',
-                details: cleanupError.message
-              })
-            }
-          })
-          
-          // Handle process errors
-          pythonProcess.on('error', (error) => {
-            console.error('Failed to start Python process:', error)
-            resolve({
-              success: false,
-              error: 'Failed to start photo processing',
-              details: error.message
-            })
-          })
-          
-        })
-        .catch((writeError) => {
-          console.error('Failed to write config file:', writeError)
-          resolve({
-            success: false,
-            error: 'Failed to create configuration file',
-            details: writeError.message
-          })
-        })
-        
-    } catch (error) {
-      console.error('Photo processing setup error:', error)
-      resolve({
-        success: false,
-        error: 'Failed to setup photo processing',
-        details: error.message
-      })
-    }
-  })
-})
-
-// Check Python dependencies
-ipcMain.handle('check-python-dependencies', async () => {
-  return new Promise((resolve) => {
-    try {
-      // Check if Python is available
-      const pythonProcess = spawn('python', ['--version'], { stdio: 'pipe' })
-      
-      let output = ''
-      
-      pythonProcess.stdout.on('data', (data) => {
-        output += data.toString()
-      })
-      
-      pythonProcess.stderr.on('data', (data) => {
-        output += data.toString()
-      })
-      
-      pythonProcess.on('close', (code) => {
-        if (code === 0) {
-          // Python available, check dependencies
-          checkPythonPackages(resolve, output)
-        } else {
-          resolve({
-            success: false,
-            error: 'Python not found or not working',
-            details: output
-          })
-        }
-      })
-      
-      pythonProcess.on('error', (error) => {
-        resolve({
-          success: false,
-          error: 'Python not found',
-          details: error.message
-        })
-      })
-      
-    } catch (error) {
-      resolve({
-        success: false,
-        error: 'Failed to check Python',
-        details: error.message
-      })
-    }
-  })
-})
-
-// Helper function to check Python packages
-function checkPythonPackages(resolve, pythonVersion) {
-  const requiredPackages = ['opencv-python', 'pyzbar', 'numpy']
-  const checkProcess = spawn('python', ['-c', 
-    `import sys; packages = ['cv2', 'pyzbar', 'numpy']; 
-     results = []; 
-     for pkg in packages: 
-       try: 
-         __import__(pkg); results.append(f'{pkg}:OK') 
-       except ImportError: 
-         results.append(f'{pkg}:MISSING'); 
-     print('\\n'.join(results))`
-  ], { stdio: 'pipe' })
-  
-  let output = ''
-  
-  checkProcess.stdout.on('data', (data) => {
-    output += data.toString()
-  })
-  
-  checkProcess.on('close', (code) => {
-    const results = output.trim().split('\n')
-    const missing = results.filter(r => r.includes('MISSING')).map(r => r.split(':')[0])
-    
-    resolve({
-      success: missing.length === 0,
-      python_version: pythonVersion.trim(),
-      required_packages: requiredPackages,
-      missing_packages: missing,
-      package_status: results
-    })
-  })
-  
-  checkProcess.on('error', () => {
-    resolve({
-      success: false,
-      error: 'Failed to check Python packages',
-      python_version: pythonVersion.trim()
-    })
-  })
-}
-
-/**
- * Database IPC Handlers
- */
-
-// Save project
+// Project management
 ipcMain.handle('save-project', async (event, projectData) => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
-    const result = await databaseManager.saveProject(projectData)
-    return result
+    const projectId = await databaseManager.saveProject(projectData)
+    return { success: true, projectId }
   } catch (error) {
-    console.error('Error in save-project handler:', error)
+    console.error('Error saving project:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Get all projects
 ipcMain.handle('get-projects', async () => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
     const result = await databaseManager.getProjects()
-    return result
+    return result // Retorna diretamente o resultado do database
   } catch (error) {
-    console.error('Error in get-projects handler:', error)
+    console.error('Error getting projects:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Get project by ID
+// Database management
+ipcMain.handle('clear-database', async () => {
+  try {
+    const result = await databaseManager.clearAllData()
+    return result
+  } catch (error) {
+    console.error('Error clearing database:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 ipcMain.handle('get-project', async (event, projectId) => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
+    console.log('get-project handler called with ID:', projectId)
     const result = await databaseManager.getProject(projectId)
+    console.log('get-project handler result:', result)
     return result
   } catch (error) {
-    console.error('Error in get-project handler:', error)
+    console.error('Error getting project:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Save processing results
-ipcMain.handle('save-processing-results', async (event, projectId, results) => {
+// Check if project exists by name
+ipcMain.handle('check-project-exists', async (event, projectName) => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
+    const projects = await databaseManager.getProjects()
+    if (projects.success) {
+      const existingProject = projects.projects.find(p => p.name === projectName)
+      return { 
+        success: true, 
+        exists: !!existingProject,
+        project: existingProject || null
+      }
     }
-    const result = await databaseManager.saveProcessingResults(projectId, results)
-    return result
+    return { success: false, exists: false }
   } catch (error) {
-    console.error('Error in save-processing-results handler:', error)
+    console.error('Error checking project existence:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Delete project
 ipcMain.handle('delete-project', async (event, projectId) => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
-    const result = await databaseManager.deleteProject(projectId)
-    return result
+    await databaseManager.deleteProject(projectId)
+    return { success: true }
   } catch (error) {
-    console.error('Error in delete-project handler:', error)
+    console.error('Error deleting project:', error)
     return { success: false, error: error.message }
   }
 })
 
-// Cache QR result
-ipcMain.handle('cache-qr-result', async (event, filePath, qrCode, confidence, fileHash) => {
-  try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
-    const result = await databaseManager.cacheQRResult(filePath, qrCode, confidence, fileHash)
-    return result
-  } catch (error) {
-    console.error('Error in cache-qr-result handler:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-// Get cached QR result
-ipcMain.handle('get-cached-qr-result', async (event, filePath, fileHash) => {
-  try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
-    const result = await databaseManager.getCachedQRResult(filePath, fileHash)
-    return result
-  } catch (error) {
-    console.error('Error in get-cached-qr-result handler:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-// Update project configuration
 ipcMain.handle('update-project-config', async (event, projectId, config) => {
   try {
-    if (!databaseManager) {
-      return { success: false, error: 'Database not initialized' }
-    }
-    const result = await databaseManager.updateProjectConfig(projectId, config)
-    return result
+    await databaseManager.updateProjectConfig(projectId, config)
+    return { success: true }
   } catch (error) {
-    console.error('Error in update-project-config handler:', error)
+    console.error('Error updating project config:', error)
     return { success: false, error: error.message }
   }
 })
 
-/**
- * Utility Functions
- */
-
-// Generate HTML content for credentials printing
-function generateCredentialsHTML(credentials, eventName) {
-  const html = `
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Credenciais - ${eventName}</title>
-    <style>
-        @page {
-            size: A4;
-            margin: 1cm;
-        }
-        
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: white;
-        }
-        
-        .credentials-container {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-            max-width: 100%;
-        }
-        
-        .credential {
-            border: 2px solid #333;
-            padding: 15px;
-            text-align: center;
-            background: white;
-            min-height: 200px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            page-break-inside: avoid;
-        }
-        
-        .credential-header {
-            font-size: 14px;
-            font-weight: bold;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        
-        .qr-code {
-            width: 80px;
-            height: 80px;
-            margin: 10px auto;
-            background: #f0f0f0;
-            border: 1px solid #ccc;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            color: #666;
-        }
-        
-        .participant-name {
-            font-size: 18px;
-            font-weight: bold;
-            margin: 10px 0;
-            color: #333;
-        }
-        
-        .participant-class {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        
-        .event-name {
-            font-size: 12px;
-            color: #999;
-            margin-top: auto;
-        }
-        
-        .photographer-url {
-            font-size: 10px;
-            color: #0066CC;
-            margin-top: 5px;
-        }
-        
-        @media print {
-            body {
-                margin: 0;
-                padding: 10px;
-            }
-            
-            .credentials-container {
-                gap: 15px;
-            }
-            
-            .credential {
-                min-height: 180px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="credentials-container">
-        ${credentials.map(credential => `
-            <div class="credential">
-                <div class="credential-header">CREDENCIAL DE PARTICIPAÇÃO</div>
-                <div class="qr-code">QR: ${credential.qrCode}</div>
-                <div class="participant-name">${credential.name}</div>
-                <div class="participant-class">${credential.turma}</div>
-                <div class="event-name">${eventName}</div>
-                <div class="photographer-url">https://photomanager.com</div>
-            </div>
-        `).join('')}
-    </div>
-    
-    <script>
-        // Auto-print when page loads
-        window.onload = function() {
-            setTimeout(function() {
-                window.print();
-            }, 1000);
-        };
-    </script>
-</body>
-</html>`
-  
-  return html
-}
-
-// Sanitize file names for cross-platform compatibility
-function sanitizeFileName(fileName) {
-  return fileName
-    .replace(/[<>:"/\\|?*]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-// Handle photos folder selection - NEW
+// Photos folder selection
 ipcMain.handle('select-photos-folder', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
-      title: 'Selecionar Pasta das Fotos Originais',
-      buttonLabel: 'Selecionar Pasta'
+      title: 'Selecionar Pasta das Fotos Originais'
     })
     
-    return result
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { success: true, filePaths: result.filePaths }
+    }
+    
+    return { success: false, error: 'No folder selected' }
   } catch (error) {
     console.error('Error selecting photos folder:', error)
-    throw error
+    return { success: false, error: error.message }
   }
 })
 
-// Validate photos folder - NEW
 ipcMain.handle('validate-photos-folder', async (event, folderPath) => {
   try {
     const stats = await fs.stat(folderPath)
-    
     if (!stats.isDirectory()) {
-      return { 
-        valid: false, 
-        message: 'O caminho selecionado não é uma pasta' 
-      }
+      return { valid: false, message: 'Path is not a directory' }
     }
-
-    // Read folder contents
-    const files = await fs.readdir(folderPath)
     
-    // Filter JPG files
-    const jpgFiles = files.filter(file => 
-      /\.(jpg|jpeg)$/i.test(file)
-    )
-
-    if (jpgFiles.length === 0) {
+    // Check if folder is readable
+    try {
+      await fs.access(folderPath, fs.constants.R_OK)
+      
+      // Count image files
+      const files = await fs.readdir(folderPath)
+      const imageFiles = files.filter(file => {
+        const ext = path.extname(file).toLowerCase()
+        return ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'].includes(ext)
+      })
+      
       return { 
-        valid: false, 
-        message: 'Nenhum arquivo JPG encontrado na pasta selecionada' 
+        valid: true, 
+        message: `Photos folder validated successfully`,
+        fileCount: imageFiles.length
       }
-    }
-
-    return { 
-      valid: true, 
-      message: `Encontrados ${jpgFiles.length} arquivos JPG`,
-      fileCount: jpgFiles.length,
-      files: jpgFiles
+    } catch {
+      return { valid: false, message: 'Directory is not readable' }
     }
   } catch (error) {
-    return { 
-      valid: false, 
-      message: `Erro ao acessar pasta: ${error.message}` 
-    }
+    return { valid: false, message: 'Directory does not exist or is not accessible' }
   }
 })
 
-// Cleanup database on app quit
-app.on('before-quit', () => {
-  if (databaseManager) {
-    databaseManager.close()
+// App Settings handlers
+ipcMain.handle('get-setting', async (event, key) => {
+  try {
+    const result = await databaseManager.getSetting(key)
+    return result
+  } catch (error) {
+    console.error('Error getting setting:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('set-setting', async (event, key, value) => {
+  try {
+    const result = await databaseManager.setSetting(key, value)
+    return result
+  } catch (error) {
+    console.error('Error setting setting:', error)
+    return { success: false, error: error.message }
   }
 })

@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { 
   ArrowLeft, 
-  Printer, 
-  Download, 
   Eye, 
   Settings,
   User,
@@ -36,32 +34,41 @@ const Credentials = ({ projectData, onNavigation }) => {
       x: 93, // Posição ajustada para 283x425px
       y: 105,
       size: 144, // Tamanho ajustado para 283x425px
-      content: 'QR1234567' // Will be replaced with actual participant QR
+      content: 'https://www.photo.app/fotografo/nomedotenant/QR1234567' // Will be replaced with actual participant QR
     },
     name: {
       enabled: true,
-      x: 96, // Posição ajustada para 283x425px
+      x: 88, // Posição conforme especificação
       y: 288,
-      fontSize: 12, // Tamanho ajustado para legibilidade
+      fontSize: 12, // 12px conforme especificação
       fontFamily: 'Arial',
       color: '#000000'
     },
     turma: {
       enabled: true,
-      x: 12, // Posição ajustada para 283x425px
-      y: 84,
-      fontSize: 10, // Tamanho ajustado para legibilidade
+      x: 129, // Posição conforme especificação
+      y: 311,
+      fontSize: 12, // 12px conforme especificação
       fontFamily: 'Arial',
       color: '#666666'
     },
     photographerUrl: {
       enabled: true,
-      x: 12, // Posição ajustada para 283x425px
-      y: 96,
-      fontSize: 8, // Tamanho ajustado para legibilidade
+      x: 104, // Posição conforme especificação
+      y: 342,
+      fontSize: 11, // 11pt conforme especificação
       fontFamily: 'Arial',
       color: '#0066CC',
       text: 'https://photom.app'
+    },
+    qrCodeText: {
+      enabled: true,
+      x: 104, // Posição conforme especificação
+      y: 370,
+      fontSize: 11, // 11pt conforme especificação
+      fontFamily: 'Arial',
+      color: '#000000',
+      text: 'QR1234567' // Will be replaced with actual participant QR
     },
     
     // Layout
@@ -75,6 +82,13 @@ const Credentials = ({ projectData, onNavigation }) => {
   const [generatedCredentials, setGeneratedCredentials] = useState(null)
   const [previewParticipant, setPreviewParticipant] = useState(null)
   const [activeTab, setActiveTab] = useState('background') // background, elements, preview
+  const [globalPhotographerUrl, setGlobalPhotographerUrl] = useState('')
+  const [isLoadingUrl, setIsLoadingUrl] = useState(true)
+
+  // Load global photographer URL on component mount
+  useEffect(() => {
+    loadGlobalPhotographerUrl()
+  }, [])
 
   // Set preview participant when project data changes
   useEffect(() => {
@@ -82,6 +96,39 @@ const Credentials = ({ projectData, onNavigation }) => {
       setPreviewParticipant(projectData.participants[0])
     }
   }, [projectData?.participants])
+
+  const loadGlobalPhotographerUrl = useCallback(async () => {
+    try {
+      setIsLoadingUrl(true)
+      const result = await window.electronAPI.getSetting('photographer_url')
+      if (result.success && result.value) {
+        setGlobalPhotographerUrl(result.value)
+        // Update the credentials config with the global URL
+        setCredentialsConfig(prev => ({
+          ...prev,
+          photographerUrl: {
+            ...prev.photographerUrl,
+            text: result.value
+          }
+        }))
+      }
+    } catch (error) {
+      console.error('Error loading photographer URL:', error)
+    } finally {
+      setIsLoadingUrl(false)
+    }
+  }, [])
+
+  const handlePhotographerUrlChange = useCallback((newUrl) => {
+    setGlobalPhotographerUrl(newUrl)
+    setCredentialsConfig(prev => ({
+      ...prev,
+      photographerUrl: {
+        ...prev.photographerUrl,
+        text: newUrl
+      }
+    }))
+  }, [])
 
   // Load saved credentials configuration when project is loaded
   useEffect(() => {
@@ -91,16 +138,40 @@ const Credentials = ({ projectData, onNavigation }) => {
           // Try to load from database first
           if (window.electronAPI.getProject) {
             const result = await window.electronAPI.getProject(projectData.projectId)
-            if (result.success && result.project.config) {
-              const config = result.project.config
+            console.log('Loading project config:', result)
+            console.log('Project data:', result.project)
+            console.log('Config exists:', !!result.project?.config)
+            console.log('Config value:', result.project?.config)
+            if (result.success) {
+              const config = result.project.config || {}
+              console.log('Project config found:', config)
+              console.log('Config keys:', Object.keys(config))
+              console.log('Has backgroundImagePath:', !!config.backgroundImagePath)
+              console.log('Has qrCode:', !!config.qrCode)
+              console.log('Has name:', !!config.name)
+              
               if (config.credentialsConfig) {
+                console.log('Loading credentials config:', config.credentialsConfig)
                 setCredentialsConfig(prev => ({
                   ...prev,
                   ...config.credentialsConfig
                 }))
                 console.log('Loaded saved credentials configuration from database')
                 return
+              } else if (config.backgroundImagePath || config.qrCode || config.name) {
+                // Direct config structure (without credentialsConfig wrapper)
+                console.log('Loading direct credentials config:', config)
+                setCredentialsConfig(prev => ({
+                  ...prev,
+                  ...config
+                }))
+                console.log('Loaded direct credentials configuration from database')
+                return
+              } else {
+                console.log('No credentials config found in project config')
               }
+            } else {
+              console.log('No project config found or result not successful')
             }
           }
           
@@ -110,12 +181,20 @@ const Credentials = ({ projectData, onNavigation }) => {
           if (savedConfig) {
             try {
               const config = JSON.parse(savedConfig)
+              console.log('Loading from localStorage:', config)
               if (config.credentialsConfig) {
                 setCredentialsConfig(prev => ({
                   ...prev,
                   ...config.credentialsConfig
                 }))
                 console.log('Loaded saved credentials configuration from localStorage')
+              } else {
+                // Direct config structure
+                setCredentialsConfig(prev => ({
+                  ...prev,
+                  ...config
+                }))
+                console.log('Loaded direct config from localStorage')
               }
             } catch (parseError) {
               console.error('Error parsing saved config from localStorage:', parseError)
@@ -147,11 +226,12 @@ const Credentials = ({ projectData, onNavigation }) => {
     }))
   }, [])
 
-  const handleBackgroundSelect = useCallback((imagePath, imageData) => {
+  const handleBackgroundSelect = useCallback((imageName, imageData, imagePath) => {
     setCredentialsConfig(prev => ({
       ...prev,
-      backgroundImage: imageData,
-      backgroundImagePath: imagePath
+      backgroundImage: imageData, // Base64 for preview
+      backgroundImagePath: imagePath || imageName, // File path for persistence
+      backgroundImageBase64: imageData // Keep base64 for preview even after reload
     }))
   }, [])
 
@@ -177,8 +257,11 @@ const Credentials = ({ projectData, onNavigation }) => {
       })
 
       if (result.success) {
+        console.log('Generation result:', result)
+        console.log('Output directory:', result.outputDirectory)
+        console.log('Generated files:', result.generatedFiles)
         setGeneratedCredentials(result.credentials)
-        alert(`${result.credentials.length} credenciais geradas com sucesso!\n\nSalvas em: ${result.outputDirectory}`)
+        alert(`${result.credentials.length} credenciais geradas com sucesso!\n\nSalvas em: ${result.outputDirectory}\n\nArquivos gerados: ${result.generatedFiles?.length || 0} arquivos PNG`)
       } else {
         alert(`Erro ao gerar credenciais: ${result.error}`)
       }
@@ -190,47 +273,6 @@ const Credentials = ({ projectData, onNavigation }) => {
     }
   }, [projectData, credentialsConfig])
 
-  const handlePrintCredentials = useCallback(async () => {
-    if (!generatedCredentials) {
-      alert('Nenhuma credencial gerada. Gere as credenciais primeiro.')
-      return
-    }
-
-    try {
-      const result = await window.electronAPI.printCredentials(generatedCredentials, projectData.eventName)
-      if (result.success) {
-        alert(result.message)
-      } else {
-        alert(`Erro ao imprimir: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error printing credentials:', error)
-      alert(`Erro inesperado: ${error.message}`)
-    }
-  }, [generatedCredentials, projectData.eventName])
-
-  const handleSaveCredentials = useCallback(async () => {
-    if (!generatedCredentials) {
-      alert('Nenhuma credencial gerada. Gere as credenciais primeiro.')
-      return
-    }
-
-    try {
-      const result = await window.electronAPI.saveCredentials(
-        generatedCredentials, 
-        projectData.eventName, 
-        projectData.createdFolderPath  // Usar a pasta de destino
-      )
-      if (result.success) {
-        alert(result.message)
-      } else {
-        alert(`Erro ao salvar: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error saving credentials:', error)
-      alert(`Erro inesperado: ${error.message}`)
-    }
-  }, [generatedCredentials, projectData.eventName, projectData.createdFolderPath])
 
   const handleSaveCredentialsConfig = useCallback(async () => {
     if (!projectData?.projectId) {
@@ -239,21 +281,33 @@ const Credentials = ({ projectData, onNavigation }) => {
     }
 
     try {
-      // Save credentials configuration to database
+      // Save credentials configuration to database (include backgroundImageBase64 for generation)
+      const { backgroundImage, ...configWithoutPreviewBase64 } = credentialsConfig
       const configToSave = {
-        credentialsConfig: credentialsConfig,
+        ...configWithoutPreviewBase64,
         savedAt: new Date().toISOString()
       }
 
       console.log('Saving credentials config:', configToSave)
       console.log('Project ID:', projectData.projectId)
+      console.log('Full credentialsConfig before save:', credentialsConfig)
 
       let result
+
+      // Always save to localStorage first as backup
+      try {
+        const tempKey = `photolab_credentials_config_${projectData.projectId}`
+        localStorage.setItem(tempKey, JSON.stringify(configToSave))
+        console.log('Saved to localStorage as backup')
+      } catch (localError) {
+        console.error('Error saving to localStorage:', localError)
+      }
 
       // Try the new function first
       if (window.electronAPI.updateProjectConfig) {
         console.log('Using updateProjectConfig function')
         result = await window.electronAPI.updateProjectConfig(projectData.projectId, configToSave)
+        console.log('Update result:', result)
       } else {
         // Fallback: save to localStorage temporarily
         console.log('updateProjectConfig not available, saving to localStorage as fallback')
@@ -384,6 +438,25 @@ const Credentials = ({ projectData, onNavigation }) => {
               </h2>
               
               <div className="space-y-4">
+                {/* Photographer URL Configuration */}
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">URL do Fotógrafo</h3>
+                  <div className="space-y-2">
+                    <input
+                      type="url"
+                      value={globalPhotographerUrl}
+                      onChange={(e) => handlePhotographerUrlChange(e.target.value)}
+                      placeholder="https://www.photo.app/fotografo/nomedotenant"
+                      className="w-full input-field"
+                      disabled={isLoadingUrl}
+                    />
+                    <p className="text-xs text-gray-600">
+                      Esta URL será usada para gerar QR codes nas credenciais. 
+                      Formato: https://www.photo.app/fotografo/[nomedotenant]/[QR Code]
+                    </p>
+                  </div>
+                </div>
+
                 {/* Layout Options */}
                 <div>
                   <h3 className="font-medium text-gray-900 mb-2">Layout</h3>
@@ -486,25 +559,6 @@ const Credentials = ({ projectData, onNavigation }) => {
                 )}
               </button>
 
-              {generatedCredentials && (
-                <>
-                  <button
-                    onClick={handlePrintCredentials}
-                    className="btn-secondary w-full flex items-center justify-center space-x-2"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Imprimir Credenciais</span>
-                  </button>
-
-                  <button
-                    onClick={handleSaveCredentials}
-                    className="btn-secondary w-full flex items-center justify-center space-x-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Salvar como PDF</span>
-                  </button>
-                </>
-              )}
             </div>
           </div>
         </div>

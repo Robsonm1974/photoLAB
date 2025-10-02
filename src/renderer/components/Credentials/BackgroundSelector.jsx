@@ -45,11 +45,14 @@ const BackgroundSelector = ({ onBackgroundSelect, currentBackground }) => {
       setPreviewUrl(url)
       setSelectedImage(file)
 
-      // Read file as base64 for storage
+      // Read file as base64 for preview and get file path
       const reader = new FileReader()
       reader.onload = (e) => {
         const base64Data = e.target.result
-        onBackgroundSelect(file.name, base64Data)
+        // Send both base64 for preview and file path for persistence
+        // Note: file.path is not available in browser, so we'll use the full path from the file input
+        const fullPath = file.webkitRelativePath || file.name
+        onBackgroundSelect(file.name, base64Data, fullPath)
         setIsLoading(false)
       }
       reader.onerror = () => {
@@ -71,7 +74,7 @@ const BackgroundSelector = ({ onBackgroundSelect, currentBackground }) => {
     setPreviewUrl(null)
     setSelectedImage(null)
     setError(null)
-    onBackgroundSelect('', null)
+    onBackgroundSelect('', null, '')
   }, [previewUrl, onBackgroundSelect])
 
   const handleDragOver = useCallback((e) => {

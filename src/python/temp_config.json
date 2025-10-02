@@ -1,0 +1,277 @@
+{
+  "source_folder": "C:\\Users\\Robson\\Makarispo Fotografia\\Nova Era Criativa\\Fotos",
+  "destination_folder": "C:\\Users\\Robson\\Makarispo Fotografia\\Nova Era Criativa",
+  "participants": [
+    {
+      "name": "Júla",
+      "turma": "Profe",
+      "qrCode": "QR0770970"
+    },
+    {
+      "name": "Giulia",
+      "turma": "Profe",
+      "qrCode": "QR7651033"
+    },
+    {
+      "name": "Nathali",
+      "turma": "Profe",
+      "qrCode": "QR4811269"
+    },
+    {
+      "name": "Kathlyn",
+      "turma": "Profe",
+      "qrCode": "QR0950654"
+    },
+    {
+      "name": "Lunara",
+      "turma": "Profe",
+      "qrCode": "QR3676361"
+    },
+    {
+      "name": "Kely",
+      "turma": "Profe",
+      "qrCode": "QR9536873"
+    },
+    {
+      "name": "Kathlyn",
+      "turma": "Profe",
+      "qrCode": "QR3393445"
+    },
+    {
+      "name": "Juliana",
+      "turma": "Profe",
+      "qrCode": "QR7482955"
+    },
+    {
+      "name": "Elen",
+      "turma": "Profe",
+      "qrCode": "QR0534855"
+    },
+    {
+      "name": "Jéssica",
+      "turma": "Profe",
+      "qrCode": "QR0753805"
+    },
+    {
+      "name": "Diesica",
+      "turma": "Profe",
+      "qrCode": "QR6351927"
+    },
+    {
+      "name": "Lívia",
+      "turma": "Profe",
+      "qrCode": "QR6063698"
+    },
+    {
+      "name": "Lucca Galleazzi Oliveira",
+      "turma": "2° ano",
+      "qrCode": "QR5439946"
+    },
+    {
+      "name": "Anthony Gabriel Lipinski de Souza",
+      "turma": "2° ano",
+      "qrCode": "QR8412587"
+    },
+    {
+      "name": "Alice Giorgetti de Deus",
+      "turma": "2° ano",
+      "qrCode": "QR8891348"
+    },
+    {
+      "name": "Letícia Gracher Grassi",
+      "turma": "1° ano",
+      "qrCode": "QR2970371"
+    },
+    {
+      "name": "Giovanna do Nascimento dos Santos",
+      "turma": "2° ano",
+      "qrCode": "QR9094978"
+    },
+    {
+      "name": "Alice Buchoski da Cruz",
+      "turma": "2° ano",
+      "qrCode": "QR9054432"
+    },
+    {
+      "name": "Stella Soares Gorak",
+      "turma": "1° ano",
+      "qrCode": "QR0697939"
+    },
+    {
+      "name": "Mel Festa de Almeida Rosa",
+      "turma": "Jardim 3",
+      "qrCode": "QR0301651"
+    },
+    {
+      "name": "Lorenzo Lang Diehl",
+      "turma": "Jardim 3",
+      "qrCode": "QR8472753"
+    },
+    {
+      "name": "Artur Torres Diogo",
+      "turma": "1° ano",
+      "qrCode": "QR7130636"
+    },
+    {
+      "name": "Laura Vittoria Mattesini",
+      "turma": "Jardim 3",
+      "qrCode": "QR0250932"
+    },
+    {
+      "name": "Cecília Donatti Foggiatto",
+      "turma": "Jardim 3",
+      "qrCode": "QR0228816"
+    },
+    {
+      "name": "Antonella Fortes Abreu",
+      "turma": "Jardim 3",
+      "qrCode": "QR0884072"
+    },
+    {
+      "name": "Camile Vanderlinde Marcon",
+      "turma": "Jardim 3",
+      "qrCode": "QR9903027"
+    },
+    {
+      "name": "Juliana de Lima Coutinho",
+      "turma": "Jardim 3",
+      "qrCode": "QR3279972"
+    },
+    {
+      "name": "Valentina Moresco Bocks Fontoura",
+      "turma": "Jardim 2",
+      "qrCode": "QR8632744"
+    },
+    {
+      "name": "Leonardo Remowicz Wuick",
+      "turma": "Jardim 2",
+      "qrCode": "QR5182057"
+    },
+    {
+      "name": "Hans Hoinacki Horts",
+      "turma": "Jardim 2",
+      "qrCode": "QR0396697"
+    },
+    {
+      "name": "Benício Bohenkem",
+      "turma": "Jardim 2",
+      "qrCode": "QR1797627"
+    },
+    {
+      "name": "Leonardo Koyano Barboza",
+      "turma": "Jardim 2",
+      "qrCode": "QR4916805"
+    },
+    {
+      "name": "Ana Laura Viski",
+      "turma": "Jardim 2",
+      "qrCode": "QR8664773"
+    },
+    {
+      "name": "Lucca Heckert Andriolli",
+      "turma": "Jardim 1",
+      "qrCode": "QR8148728"
+    },
+    {
+      "name": "Manoela França de Oliveira",
+      "turma": "Jardim 1",
+      "qrCode": "QR1182581"
+    },
+    {
+      "name": "Maitê Brasil Brito",
+      "turma": "Jardim 1",
+      "qrCode": "QR9938461"
+    },
+    {
+      "name": "Lívia Chiarello",
+      "turma": "Jardim 1",
+      "qrCode": "QR1361136"
+    },
+    {
+      "name": "Bernardo Ferreira",
+      "turma": "Jardim 1",
+      "qrCode": "QR8439370"
+    },
+    {
+      "name": "Theo Donatti Foggiatto",
+      "turma": "Maternal",
+      "qrCode": "QR3268084"
+    },
+    {
+      "name": "Agatha Galdino Almeida",
+      "turma": "Jardim 1",
+      "qrCode": "QR2245979"
+    },
+    {
+      "name": "Felipe Kauan de Lara Filho",
+      "turma": "Maternal",
+      "qrCode": "QR0931020"
+    },
+    {
+      "name": "Maitê de Souza Goy",
+      "turma": "Maternal",
+      "qrCode": "QR1577418"
+    },
+    {
+      "name": "Pietro Enrico Tarbine Silva",
+      "turma": "Maternal",
+      "qrCode": "QR1616402"
+    },
+    {
+      "name": "Benício Fortes Abreu",
+      "turma": "Maternal Baby",
+      "qrCode": "QR4127909"
+    },
+    {
+      "name": "Lucas de Jesus Batista",
+      "turma": "Maternal Baby",
+      "qrCode": "QR3701620"
+    },
+    {
+      "name": "Leonardo Hemann",
+      "turma": "Maternal Baby",
+      "qrCode": "QR5509846"
+    },
+    {
+      "name": "Catarina da Silva Moçato",
+      "turma": "Maternal Baby",
+      "qrCode": "QR9914796"
+    },
+    {
+      "name": "Manuela Buchoski da Cruz Vitor Abreu Mallmann",
+      "turma": "Maternal Baby",
+      "qrCode": "QR3427862"
+    },
+    {
+      "name": "Lucas Taborda Ribas",
+      "turma": "Maternal Baby",
+      "qrCode": "QR0278090"
+    },
+    {
+      "name": "Bento Galdino Almeida",
+      "turma": "Maternal Baby",
+      "qrCode": "QR7220848"
+    },
+    {
+      "name": "André Felipe da Silva Gato",
+      "turma": "Maternal Baby",
+      "qrCode": "QR1991940"
+    },
+    {
+      "name": "Kainan Muller Cochinski",
+      "turma": "Maternal Baby",
+      "qrCode": "QR7503362"
+    },
+    {
+      "name": "Joaquim Silva Pereira de Lima",
+      "turma": "Maternal Baby",
+      "qrCode": "QR5924216"
+    }
+  ],
+  "event_name": "Teste 15",
+  "options": {
+    "use_new_pipeline": true,
+    "cache_results": true,
+    "verbose": true
+  }
+}

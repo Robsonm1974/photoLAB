@@ -55,8 +55,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProject: (projectData) => ipcRenderer.invoke('save-project', projectData),
   getProjects: () => ipcRenderer.invoke('get-projects'),
   getProject: (projectId) => ipcRenderer.invoke('get-project', projectId),
+  checkProjectExists: (projectName) => ipcRenderer.invoke('check-project-exists', projectName),
   deleteProject: (projectId) => ipcRenderer.invoke('delete-project', projectId),
+  clearDatabase: () => ipcRenderer.invoke('clear-database'),
   saveProcessingResults: (projectId, results) => ipcRenderer.invoke('save-processing-results', projectId, results),
+  
+  // App Settings
+  getSetting: (key) => ipcRenderer.invoke('get-setting', key),
+  setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
   
   // QR Cache operations
   cacheQRResult: (filePath, qrCode, confidence, fileHash) => 

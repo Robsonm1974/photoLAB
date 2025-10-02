@@ -165,7 +165,7 @@ const ElementPositioner = ({ config, onConfigChange }) => {
             {['name', 'turma', 'photographerUrl'].includes(element.key) && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tamanho da Fonte (pt)
+                  Tamanho da Fonte (px)
                 </label>
                 <input
                   type="number"

@@ -21,9 +21,13 @@ const ProjectManager = ({ onProjectLoad, onNewProject }) => {
       setLoading(true)
       const result = await window.electronAPI.getProjects()
       
+      console.log('Projects loaded:', result)
+      
       if (result.success) {
+        console.log('Projects data:', result.projects)
         setProjects(result.projects)
       } else {
+        console.error('Error loading projects:', result.error)
         setError(result.error)
       }
     } catch (error) {
@@ -36,11 +40,37 @@ const ProjectManager = ({ onProjectLoad, onNewProject }) => {
 
   const handleLoadProject = useCallback(async (projectId) => {
     try {
+      console.log('Loading project with ID:', projectId)
       const result = await window.electronAPI.getProject(projectId)
       
+      console.log('Project load result:', result)
+      
       if (result.success) {
-        onProjectLoad(result.project)
+        console.log('Project data:', result.project)
+        console.log('Project data keys:', Object.keys(result.project || {}))
+        console.log('Project data values:', {
+          id: result.project?.id,
+          name: result.project?.name,
+          event_name: result.project?.event_name,
+          destination_folder: result.project?.destination_folder,
+          photos_folder: result.project?.photos_folder
+        })
+        
+        // The actual project data is nested inside result.project.project
+        const actualProject = result.project.project || result.project
+        console.log('Actual project data:', actualProject)
+        console.log('Actual project keys:', Object.keys(actualProject || {}))
+        console.log('Actual project values:', {
+          id: actualProject?.id,
+          name: actualProject?.name,
+          event_name: actualProject?.event_name,
+          destination_folder: actualProject?.destination_folder,
+          photos_folder: actualProject?.photos_folder
+        })
+        
+        onProjectLoad(actualProject)
       } else {
+        console.error('Error loading project:', result.error)
         setError(result.error)
       }
     } catch (error) {
